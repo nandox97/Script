@@ -1,15 +1,14 @@
 -- =================================================================
--- Nando Hub | v1.6 | Aimbot Rework
+-- Nando Hub | v1.8 | Aimbot/ESP Integrado (IAmxit)
 -- =================================================================
 
 -- =================================================================
--- LÓGICA DE CONTADOR DE EXECUÇÕES (CORREÇÃO: USANDO ARQUIVO)
+-- LÓGICA DE CONTADOR DE EXECUÇÕES 
 -- =================================================================
 
 local EXEC_FILENAME = "NandoHub_Executions.txt"
 local currentExecs = 0
 
--- 1. Tenta ler a contagem do arquivo
 pcall(function()
     if isfile and isfile(EXEC_FILENAME) and readfile then
         local savedData = readfile(EXEC_FILENAME)
@@ -21,7 +20,6 @@ end)
 
 currentExecs = currentExecs + 1
 
--- 2. Salva a nova contagem no arquivo
 pcall(function()
     if writefile then
         writefile(EXEC_FILENAME, tostring(currentExecs))
@@ -40,26 +38,47 @@ local Camera = workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 local UserInputService = game:GetService("UserInputService")
 
--- Estado de Voo (para os botões de altitude)
+-- Estado de Voo
 local flyState = 0 
 -- Variáveis de Estado (Aimbot/Trigger)
 local aimbotLegitEnabled = false 
 local aimbotRageEnabled = false 
 local aimbotEnabled = false 
-local aimPart = "Head" 
 local fovEnabled = false
 local fovSize = 100
 local fovTransparency = 0.3 
-local teamCheckEnabled = false
-local wallCheckEnabled = false
-local legitAimSpeed = 0.5 -- Ajustado para mais rápido por padrão
 local aimConnection = nil
 local triggerbotEnabled = false
 local triggerWallCheckEnabled = false
 local triggerTeamCheckEnabled = false
 local triggerConnection = nil
 
--- Modo de Aimbot (REMOVIDO: Sempre "Ao Olhar")
+-- NOVO: Configurações Detalhadas do Aimbot (Legit/Precise)
+local aimPreciseConfig = {
+    parteAlvo = "Head", 
+    suavidade = 0.5, -- Valor de 0.1 (Lento) a 1.0 (Instantâneo)
+    visibilidade = true, -- Checa Raycast
+    teamCheck = true, -- Checa Team
+    requerTecla = false, -- Se precisa segurar uma tecla
+    tecla = Enum.UserInputType.MouseButton1 -- Padrão: Botão Esquerdo do Mouse
+}
+
+-- NOVO: Configurações do ESP (Visuals)
+local espConfig = {
+    ativo = false,
+    Box = true, 
+    Esqueleto = false, 
+    Tracers = false, 
+    Username = false, 
+    DisplayName = false, 
+    Vida = false, 
+    Item = false,
+    Aim = false,
+    Distancia = true,
+    TeamCheck = true,
+    Drawings = {} -- Cache para os objetos Drawing.new
+}
+
 local isShooting = false 
 local fovCircle = nil 
 
@@ -91,12 +110,9 @@ local Window = WindUI:CreateWindow({
 
 -- --- TAGS E NOTIFICAÇÃO DE INÍCIO ---
 
--- Adiciona a Tag de Versão
-Window:Tag({ Title = "v1.6 | Aimbot Fix", Icon = "check", Color = Color3.fromHex("#30ff6a"), Radius = 0 })
--- Adiciona a Tag de Contagem de Execução
+Window:Tag({ Title = "v1.8 | Aimbot/ESP Fix", Icon = "check", Color = Color3.fromHex("#30ff6a"), Radius = 0 })
 Window:Tag({ Title = "Execuções: " .. currentExecs, Icon = "counter", Color = Color3.fromHex("#ffa500"), Radius = 0 })
 
--- Notificação única de boas-vindas
 WindUI:Notify({ 
     Title = "Nando Hub Carregado", 
     Content = string.format("Bem-vindo(a), %s! (Execução #%d)", LocalPlayer.Name, currentExecs), 
@@ -107,35 +123,42 @@ WindUI:Notify({
 local TabInfo = Window:Tab({ Title = "Informações", Icon = "info" })
 local TabPlayer = Window:Tab({ Title = "Player", Icon = "user" })
 local TabAimbot = Window:Tab({ Title = "Aimbot", Icon = "crosshair" })
-local TabEsp = Window:Tab({ Title = "Esp", Icon = "eye" })
+local TabEsp = Window:Tab({ Title = "Esp", Icon = "eye" }) -- Aba ESP existente
 local TabOutros = Window:Tab({ Title = "Outros", Icon = "settings" })
 
 
 -- =================================================================
--- LÓGICA DE AIMBOT/RAYCASTING (v1.6: Ajustes)
+-- LÓGICA DE AIMBOT/RAYCASTING (v1.8: Integrado IAmxit)
 -- =================================================================
 
-local function isVisible(targetPart)
-    local char = LocalPlayer.Character
-    if not char then return false end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return false end
-    local params = RaycastParams.new()
-    params.FilterDescendantsInstances = { char, targetPart.Parent } 
-    params.FilterType = Enum.RaycastFilterType.Exclude 
-    local origin = Camera.CFrame.Position
-    local direction = targetPart.Position - origin
-    local result = workspace:Raycast(origin, direction, params)
+-- NOVO: Raycasting robusto do script IAmxit.txt
+local function canSeeTarget(targetPart)
+    if not targetPart or not targetPart.Parent or not LocalPlayer.Character then return false end
     
-    if result and (result.Instance == targetPart or result.Instance:IsDescendantOf(targetPart.Parent)) then
-        return true
-    elseif not result then
-        return true
-    end
-    return false
+    local rayOrigin = Camera.CFrame.Position
+    local rayDirection = (targetPart.Position - rayOrigin).Unit * 1000 
+    local rayParams = RaycastParams.new()
+    
+    rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+    -- Ignora o próprio jogador e o alvo
+    rayParams.FilterDescendantsInstances = {LocalPlayer.Character, targetPart.Parent} 
+    
+    local result = workspace:Raycast(rayOrigin, rayDirection, rayParams)
+    
+    return not result or (result.Instance and result.Instance:IsDescendantOf(targetPart.Parent)) 
 end
 
+-- NOVO: Helper para a parte do corpo
+local function getTargetPart(char)
+    local part = char:FindFirstChild(aimPreciseConfig.parteAlvo) 
+    return part or char:FindFirstChild("HumanoidRootPart")
+end
+
+-- SUBSTITUÍDO: Lógica de seleção de alvo
 local function getNearestTarget()
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return nil end
+
     local nearestTarget = nil
     local smallestFov = fovSize + 1
     local origin = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
@@ -144,20 +167,7 @@ local function getNearestTarget()
         if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
             
             local targetChar = player.Character
-            local targetPart = nil
-            
-            -- Lógica para partes do corpo
-            if aimPart == "Head" then
-                targetPart = targetChar:FindFirstChild("Head")
-            elseif aimPart == "Neck" then
-                targetPart = targetChar:FindFirstChild("Neck") or targetChar:FindFirstChild("UpperTorso")
-            elseif aimPart == "Torso" then
-                targetPart = targetChar:FindFirstChild("UpperTorso") or targetChar:FindFirstChild("Torso") or targetChar:FindFirstChild("LowerTorso")
-            end
-            
-            if not targetPart then
-                targetPart = targetChar:FindFirstChild("Head")
-            end
+            local targetPart = getTargetPart(targetChar) -- Usa a função helper
             
             if targetPart then
                 local screenPoint, isonScreen = Camera:WorldToScreenPoint(targetPart.Position)
@@ -167,11 +177,11 @@ local function getNearestTarget()
                     
                     if distance <= fovSize then
                         
-                        -- Wall Check SÓ FUNCIONA SE LIGADO
-                        if wallCheckEnabled and not isVisible(targetPart) then continue end
+                        -- Lógica de Team Check (usa aimPreciseConfig)
+                        if aimPreciseConfig.teamCheck and player.Team == LocalPlayer.Team then continue end
                         
-                        -- Team Check SÓ FUNCIONA SE LIGADO
-                        if teamCheckEnabled and player.Team == LocalPlayer.Team then continue end
+                        -- Lógica de Wall Check (usa aimPreciseConfig e a nova função canSeeTarget)
+                        if aimPreciseConfig.visibilidade and not canSeeTarget(targetPart) then continue end
 
                         if distance < smallestFov then
                             smallestFov = distance
@@ -185,8 +195,10 @@ local function getNearestTarget()
     return nearestTarget
 end
 
--- --- FOV FUNÇÕES ---
+-- [ ... (FOV FUNÇÕES - Mantidas) ... ]
+
 local function createFovCircle()
+    -- ... (código mantido)
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return end
     local ScreenGui = playerGui:FindFirstChild("AimbotFovGui") or Instance.new("ScreenGui")
@@ -212,6 +224,7 @@ local function createFovCircle()
 end
 
 local function updateFov()
+    -- ... (código mantido)
     if not fovEnabled and fovCircle and fovCircle.Visible then
         fovCircle.Visible = false
         return
@@ -244,45 +257,49 @@ LocalPlayer.CharacterAdded:Connect(function(character)
 end)
 
 
--- --- AIMBOT LOOP PRINCIPAL (v1.6: Apenas "Ao Olhar") ---
+-- SUBSTITUÍDO: AIMBOT LOOP PRINCIPAL (v1.8: Usa aimPreciseConfig)
 local function updateAimbotState()
     aimbotEnabled = aimbotLegitEnabled or aimbotRageEnabled
     doAimbot()
 end
 
 local function doAimbot()
-    if not aimbotEnabled and aimConnection then
+    if not (aimbotLegitEnabled or aimbotRageEnabled) and aimConnection then
         aimConnection:Disconnect()
         aimConnection = nil
         updateFov()
         return
     end
     
-    if aimbotEnabled and aimConnection == nil then
+    if (aimbotLegitEnabled or aimbotRageEnabled) and aimConnection == nil then
         aimConnection = RunService.Heartbeat:Connect(function()
-            task.wait(0.01) -- Frequência aumentada
+            
+            -- Checagem da Tecla de Ativação
+            if aimPreciseConfig.requerTecla and not UserInputService:IsKeyPressed(aimPreciseConfig.tecla) and not UserInputService:IsMouseButtonPressed(aimPreciseConfig.tecla) then
+                return
+            end
+            
             updateFov()
 
             local target = getNearestTarget()
             
-            -- O aimbot funciona SEMPRE que há um alvo no FOV
             if target then
                 local targetPos = target.Position
                 local newCFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
                 
                 if aimbotRageEnabled then
-                    -- Rage: Movimento Instantâneo (VAI DIRETO)
+                    -- Rage: Movimento Instantâneo
                     Camera.CFrame = newCFrame 
                 elseif aimbotLegitEnabled then
-                    -- Legit: Movimento Rápido (usando legitAimSpeed)
-                    Camera.CFrame = Camera.CFrame:Lerp(newCFrame, legitAimSpeed)
+                    -- Legit: Movimento Suave/Rápido (controlado pelo slider de Suavidade)
+                    Camera.CFrame = Camera.CFrame:Lerp(newCFrame, aimPreciseConfig.suavidade)
                 end
             end
         end)
     end
 end
 
--- --- TRIGGER BOT LOOP (mantido) ---
+-- [ ... (TRIGGER BOT LOOP - Mantido) ... ]
 local function doTriggerBot()
     if not triggerbotEnabled and triggerConnection then
         triggerConnection:Disconnect()
@@ -310,8 +327,9 @@ local function doTriggerBot()
                     
                     local targetPlayer = Players:GetPlayerFromCharacter(targetHumanoid.Parent)
                     
+                    -- Team Check e Wall Check usam as vars do Trigger Bot, mantido
                     if triggerTeamCheckEnabled and targetPlayer and targetPlayer.Team == LocalPlayer.Team then return end
-                    if triggerWallCheckEnabled and not isVisible(result.Instance) then return end
+                    if triggerWallCheckEnabled and not canSeeTarget(result.Instance) then return end
 
                     Mouse:Click()
                 end
@@ -320,17 +338,15 @@ local function doTriggerBot()
     end
 end
 -- =================================================================
--- TAB: AIMBOT (UI) (v1.6: Simplificado)
+-- TAB: AIMBOT (UI) (v1.8: Detalhada)
 -- =================================================================
 
 local SectionAimbot = TabAimbot:Section({ Title = "Aimbot", Box = false, Opened = true, })
 
--- Dropdown "Tipo de Aimbot" REMOVIDO
-
 -- 1. Ativar Aimbot Legit (Suave/Rápido)
 SectionAimbot:Toggle({
-    Title = "Ativar Aimbot Legit (Suave/Rápido)",
-    Desc = "Aimbot suave e rápido, puxa a mira ao olhar para o alvo.",
+    Title = "Ativar Aimbot Legit",
+    Desc = "Aimbot suave, puxe a mira de forma controlada.",
     Icon = "user_check",
     Type = "Checkbox",
     Value = false,
@@ -342,23 +358,10 @@ SectionAimbot:Toggle({
     end
 })
 
--- Novo Slider: Velocidade Legit
-SectionAimbot:Slider({
-    Title = "Velocidade Legit (Rapidez)",
-    Desc = "Define a rapidez da transição da mira (0.1 = Lento, 1.0 = Instantâneo).",
-    Step = 0.05,
-    Value = { Min = 0.1, Max = 1.0, Default = 0.5, }, 
-    Callback = function(value)
-        legitAimSpeed = value
-    end
-})
-
-SectionAimbot:Divider()
-
 -- 2. Ativar Aimbot Rage (Instantâneo)
 SectionAimbot:Toggle({
-    Title = "Ativar Aimbot Rage (Instantâneo)",
-    Desc = "Aimbot agressivo: mira instantaneamente na cabeça ao entrar no FOV.",
+    Title = "Ativar Aimbot Rage",
+    Desc = "Aimbot agressivo: mira instantaneamente no alvo.",
     Icon = "bolt",
     Type = "Checkbox",
     Value = false,
@@ -372,37 +375,97 @@ SectionAimbot:Toggle({
 
 SectionAimbot:Divider()
 
--- 3. Dropdown (Cabeça, Pescoço, Corpo)
+-- 3. Slider: Suavidade Legit (NOVO/Substituído)
+SectionAimbot:Slider({
+    Title = "Suavidade Legit (Rapidez)",
+    Desc = "Define a rapidez da transição da mira (0.1 = Lento, 1.0 = Instantâneo).",
+    Step = 0.05,
+    Value = { Min = 0.1, Max = 1.0, Default = 0.5, }, 
+    Callback = function(value)
+        aimPreciseConfig.suavidade = value
+    end
+})
+
 SectionAimbot:Dropdown({
     Title = "Parte do Alvo",
     Desc = "Define a parte do corpo a ser alvejada.",
-    Values = { "Cabeça", "Pescoço", "Corpo" },
-    Value = "Cabeça",
+    Values = { "Head", "HumanoidRootPart", "UpperTorso" },
+    Value = aimPreciseConfig.parteAlvo,
     Callback = function(option)
-        if option == "Cabeça" then aimPart = "Head"
-        elseif option == "Pescoço" then aimPart = "Neck" 
-        elseif option == "Corpo" then aimPart = "Torso" 
-        end
+        aimPreciseConfig.parteAlvo = option
         WindUI:Notify({Title = "Aimbot", Content = "Alvo definido para: " .. option, Duration = 2})
     end
 })
 
 SectionAimbot:Divider()
 
--- 4. Ativar FOV
+-- 4. Toggle: Checar Visibilidade (Wall Check) (REMAPEADO)
 SectionAimbot:Toggle({
-    Title = "Ativar FOV",
+    Title = "Checar Visibilidade (Wall Check)",
+    Desc = "Impede mira em inimigos atrás de paredes (Raycasting).",
+    Icon = "wall_check",
+    Type = "Checkbox",
+    Value = aimPreciseConfig.visibilidade,
+    Callback = function(state)
+        aimPreciseConfig.visibilidade = state
+    end
+})
+
+-- 5. Toggle: Team Check (REMAPEADO)
+SectionAimbot:Toggle({
+    Title = "Team Check",
+    Desc = "Impede que o Aimbot atinja colegas de equipa.",
+    Icon = "users",
+    Type = "Checkbox",
+    Value = aimPreciseConfig.teamCheck,
+    Callback = function(state)
+        aimPreciseConfig.teamCheck = state
+    end
+})
+
+SectionAimbot:Divider()
+
+-- 6. Requer Segurar Tecla (NOVO)
+SectionAimbot:Toggle({ 
+    Title = "Requer Segurar Tecla", 
+    Desc = "Aimbot só ativa se a tecla escolhida for pressionada.",
+    Type = "Checkbox",
+    Value = aimPreciseConfig.requerTecla,
+    Callback = function(v) 
+        aimPreciseConfig.requerTecla = v 
+    end 
+})
+
+SectionAimbot:Dropdown({ 
+    Title = "Tecla de Ativação", 
+    Desc = "Tecla a ser segurada para ativar o Aimbot (ex: MouseButton1 para atirar).",
+    Values = {"MouseButton1", "MouseButton2", "E", "Q", "X", "V", "LeftShift"}, 
+    Value = "MouseButton1",
+    Callback = function(v) 
+        -- Mapeamento para Enum correto
+        if Enum.UserInputType[v] then aimPreciseConfig.tecla = Enum.UserInputType[v]
+        elseif Enum.KeyCode[v] then aimPreciseConfig.tecla = Enum.KeyCode[v]
+        else aimPreciseConfig.tecla = Enum.UserInputType.MouseButton1 end
+        WindUI:Notify({Title = "Aimbot", Content = "Tecla definida para: " .. v, Duration = 2})
+    end 
+})
+
+SectionAimbot:Divider()
+
+-- 7. Ativar FOV
+SectionAimbot:Toggle({
+    Title = "Ativar FOV (Círculo)",
     Desc = "Desenha o círculo do campo de visão na tela.",
     Icon = "eye_open",
     Type = "Checkbox",
-    Value = false,
+    Value = fovEnabled,
     Callback = function(state)
         fovEnabled = state
         updateFov()
     end
 })
 
--- 5. Tamanho do FOV
+-- 8. Tamanho do FOV
 SectionAimbot:Slider({
     Title = "Tamanho do FOV",
     Desc = "Define o raio do campo de visão (em pixels).",
@@ -414,7 +477,7 @@ SectionAimbot:Slider({
     end
 })
 
--- 6. Transparência do FOV
+-- 9. Transparência do FOV
 SectionAimbot:Slider({
     Title = "Transparência do FOV",
     Desc = "Controla a transparência do círculo FOV (0.0 = Visível, 1.0 = Invisível).",
@@ -426,39 +489,10 @@ SectionAimbot:Slider({
     end
 })
 
-SectionAimbot:Divider()
 
--- 7. Ativar Team Check (SÓ FUNCIONA SE LIGADO)
-SectionAimbot:Toggle({
-    Title = "Ativar Team Check",
-    Desc = "Impede que o Aimbot atinja colegas de equipa (SÓ ATIVA SE LIGADO).",
-    Icon = "users",
-    Type = "Checkbox",
-    Value = false,
-    Callback = function(state)
-        teamCheckEnabled = state
-    end
-})
-
-SectionAimbot:Divider()
-
--- 8. Ativar Wall Check (SÓ FUNCIONA SE LIGADO)
-SectionAimbot:Toggle({
-    Title = "Ativar Wall Check",
-    Desc = "Impede que o Aimbot mire em inimigos atrás de paredes (SÓ ATIVA SE LIGADO).",
-    Icon = "wall_check",
-    Type = "Checkbox",
-    Value = false,
-    Callback = function(state)
-        wallCheckEnabled = state
-    end
-})
-
-
--- --- SECÇÃO: TRIGGER BOT ---
+-- --- SECÇÃO: TRIGGER BOT (Mantido) ---
 local SectionTriggerBot = TabAimbot:Section({ Title = "Trigger Bot", Box = false, Opened = true, })
 
--- 1. Ativar Trigger Bot
 SectionTriggerBot:Toggle({
     Title = "Ativar Trigger Bot",
     Desc = "Atira automaticamente quando a mira está sobre um inimigo.",
@@ -473,7 +507,6 @@ SectionTriggerBot:Toggle({
 
 SectionTriggerBot:Divider()
 
--- 2. Ativar Wall Check (Trigger Bot)
 SectionTriggerBot:Toggle({
     Title = "Ativar Wall Check",
     Desc = "Impede o Trigger Bot de atirar através de paredes.",
@@ -487,7 +520,6 @@ SectionTriggerBot:Toggle({
 
 SectionTriggerBot:Divider()
 
--- 3. Ativar Team Check (Trigger Bot)
 SectionTriggerBot:Toggle({
     Title = "Ativar Team Check",
     Desc = "Impede que o Trigger Bot atire em colegas de equipa.",
@@ -498,16 +530,45 @@ SectionTriggerBot:Toggle({
         triggerTeamCheckEnabled = state
     end
 })
+
+-- =================================================================
+-- TAB: ESP / VISUALS (v1.8: Integrado IAmxit)
+-- =================================================================
+
+local SectionEsp = TabEsp:Section({ Title = "Configurações de ESP", Box = false, Opened = true, })
+
+SectionEsp:Toggle({ 
+    Title = "Ativar Visuals (ESP)", 
+    Desc = "Ativa a renderização de todas as informações visuais.",
+    Icon = "check",
+    Type = "Checkbox", 
+    Value = espConfig.ativo,
+    Callback = function(v) 
+        espConfig.ativo = v 
+    end 
+})
+
+SectionEsp:Divider()
+
+SectionEsp:Toggle({ Title = "Checar Team (Ignorar Amigos)", Desc = "Não desenha visuais em colegas de equipa.", Icon = "users", Type = "Checkbox", Value = espConfig.TeamCheck, Callback = function(v) espConfig.TeamCheck = v end })
+SectionEsp:Toggle({ Title = "Box Simples", Desc = "Desenha uma caixa 2D ao redor do alvo.", Icon = "box", Type = "Checkbox", Value = espConfig.Box, Callback = function(v) espConfig.Box = v end })
+SectionEsp:Toggle({ Title = "Barra de Vida (HP)", Desc = "Mostra a barra de vida lateral.", Icon = "heart", Type = "Checkbox", Value = espConfig.Vida, Callback = function(v) espConfig.Vida = v end })
+SectionEsp:Toggle({ Title = "Tracers (Linha)", Desc = "Desenha uma linha do alvo até a base da tela.", Icon = "line_chart", Type = "Checkbox", Value = espConfig.Tracers, Callback = function(v) espConfig.Tracers = v end })
+SectionEsp:Toggle({ Title = "Distância", Desc = "Mostra a distância em metros até o alvo.", Icon = "distance", Type = "Checkbox", Value = espConfig.Distancia, Callback = function(v) espConfig.Distancia = v end })
+SectionEsp:Toggle({ Title = "Username ESP", Desc = "Mostra o nome de utilizador (Account Name).", Icon = "user", Type = "Checkbox", Value = espConfig.Username, Callback = function(v) espConfig.Username = v end })
+SectionEsp:Toggle({ Title = "Display Name ESP", Desc = "Mostra o nome de exibição.", Icon = "id_badge", Type = "Checkbox", Value = espConfig.DisplayName, Callback = function(v) espConfig.DisplayName = v end })
+SectionEsp:Toggle({ Title = "Item Segurado", Desc = "Mostra o nome da ferramenta que o alvo está segurando.", Icon = "tool", Type = "Checkbox", Value = espConfig.Item, Callback = function(v) espConfig.Item = v end })
+SectionEsp:Toggle({ Title = "Linha da Mira (Head Look)", Desc = "Desenha uma linha na direção que a cabeça do alvo está a olhar.", Icon = "eye_open", Type = "Checkbox", Value = espConfig.Aim, Callback = function(v) espConfig.Aim = v end })
 -- =================================================================
 -- RESTO DO SCRIPT (PLAYER, FLY, INFO)
 -- =================================================================
 
--- TAB: INFORMAÇÕES
+-- TAB: INFORMAÇÕES (Mantido)
 local SectionCreditos = TabInfo:Section({ Title = "Creditos", Box = false, Opened = true, })
 SectionCreditos:Paragraph({ Title = "Credits / Créditos", Desc = "Developed by: nandoxx._. on discord", Locked = false, })
 SectionCreditos:Paragraph({ Title = "Dates / Datas", Desc = "Created: December 12, 2025 (12 de Dezembro de 2025)\nLast Update: December 12, 2025 (12 de Dezembro de 2025)", Locked = false, })
 
--- TAB: PLAYER
+-- TAB: PLAYER (Mantido)
 local SectionPlayerInfo = TabPlayer:Section({ Title = "Informações do Player", Box = false, Opened = true, })
 
 local playerIcon = "rbxassetid://10723415903"
@@ -711,5 +772,226 @@ end)
 
 SectionJump:Toggle({ Title = "Ativar Power Jump", Desc = "Aumenta a altura máxima do salto.", Icon = "jump", Type = "Checkbox", Value = false, Callback = function(state) jumpEnabled = state if not state and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then LocalPlayer.Character.Humanoid.JumpPower = 50 end end })
 SectionJump:Slider({ Title = "Power Jump", Desc = "Define a força do salto.", Step = 1, Value = { Min = 50, Max = 300, Default = 50, }, Callback = function(value) jumpValue = value if jumpEnabled and LocalPlayer.Character then LocalPlayer.Character.Humanoid.JumpPower = value end end })
+
+
+-- ====================================================================
+-- LOOP PRINCIPAL DO ESP (v1.8: RenderStepped)
+-- ====================================================================
+
+RunService.RenderStepped:Connect(function()
+    if not espConfig.ativo or not LocalPlayer.Character then
+        -- Limpa todos os desenhos se estiver desligado
+        for _, d in pairs(espConfig.Drawings) do
+            for _, item in pairs(d) do if item:IsA("Drawing") then item.Visible = false end end
+        end
+        return
+    end
+
+    local myRoot = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+
+    local playersInView = {}
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        
+        local char = player.Character
+        if not char or char:FindFirstChildOfClass("Humanoid").Health <= 0 then continue end
+
+        -- Checagem de Team
+        if espConfig.TeamCheck and player.Team == LocalPlayer.Team then continue end
+
+        local root = char:FindFirstChild("HumanoidRootPart")
+        if not root then continue end
+
+        -- 1. Posições na Tela
+        local head = char:FindFirstChild("Head") or root
+        local headPos, headOnScreen = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 1, 0))
+        local rootPos, rootOnScreen = Camera:WorldToViewportPoint(root.Position - Vector3.new(0, root.Size.Y / 2, 0))
+
+        if not headOnScreen and not rootOnScreen then
+            -- Se não está na tela, esconde os desenhos e pula
+            if espConfig.Drawings[player] then
+                for _, d in pairs(espConfig.Drawings[player]) do if d:IsA("Drawing") then d.Visible = false end end
+            end
+            continue
+        end
+
+        table.insert(playersInView, {player = player, char = char, headPos = headPos, rootPos = rootPos})
+    end
+
+    -- Limpa desenhos de jogadores que saíram da lista/jogo
+    for player, drawings in pairs(espConfig.Drawings) do
+        local found = false
+        for _, item in ipairs(playersInView) do
+            if item.player == player then found = true; break end
+        end
+        if not found then
+            for _, d in pairs(drawings) do if d:IsA("Drawing") then d:Remove() end end
+            espConfig.Drawings[player] = nil
+        end
+    end
+
+
+    -- 2. DESENHAR OS VISUAIS
+    for _, data in ipairs(playersInView) do
+        local player, char, headPos, rootPos = data.player, data.char, data.headPos, data.rootPos
+        local drawings = espConfig.Drawings[player] or {}
+        espConfig.Drawings[player] = drawings
+
+        -- Cor: Azul se for amigo (e TeamCheck ativo), Vermelho se for inimigo, Amarelo se TeamCheck desligado
+        local color = espConfig.TeamCheck and (player.Team == LocalPlayer.Team and Color3.fromRGB(0, 255, 255) or Color3.fromRGB(255, 0, 0)) or Color3.fromRGB(255, 255, 0)
+        
+        -- Garante que o desenho existe
+        local function ensureDrawing(name, typeName)
+            if not drawings[name] then
+                drawings[name] = Drawing.new(typeName)
+                drawings[name].Color = color
+                drawings[name].Outline = true
+                drawings[name].Visible = true
+                drawings[name].ZIndex = 1
+            end
+            return drawings[name]
+        end
+
+        -- --- BOX ESP 
+        if espConfig.Box and char:FindFirstChild("HumanoidRootPart") then
+            local box = ensureDrawing("Box", "Square")
+            local boxHeight = math.abs(rootPos.Y - headPos.Y)
+            local boxWidth = boxHeight / 2.5 
+            
+            box.Size = Vector2.new(boxWidth, boxHeight)
+            box.Position = Vector2.new(headPos.X, headPos.Y + boxHeight / 2)
+            box.Color = color
+            box.Visible = true
+
+            -- Adiciona barra de vida lateral
+            if espConfig.Vida then
+                 local vidaBar = ensureDrawing("VidaBar", "Square")
+                 vidaBar.Size = Vector2.new(4, boxHeight)
+                 vidaBar.Position = Vector2.new(headPos.X - boxWidth/2 - 5, headPos.Y + boxHeight / 2)
+                 vidaBar.Visible = true
+                 vidaBar.Color = Color3.fromRGB(0, 255, 0)
+                 vidaBar.Filled = true
+                 
+                 local hum = char:FindFirstChildOfClass("Humanoid")
+                 local vidaPercent = hum.Health / hum.MaxHealth
+                 
+                 local vidaOverlay = ensureDrawing("VidaOverlay", "Square")
+                 -- Calcular a altura do overlay (a parte vazia/vermelha)
+                 local overlayHeight = boxHeight * (1 - vidaPercent)
+                 
+                 vidaOverlay.Size = Vector2.new(4, overlayHeight)
+                 -- Ajustar a posição para começar no topo da barra
+                 vidaOverlay.Position = Vector2.new(headPos.X - boxWidth/2 - 5, headPos.Y + overlayHeight / 2)
+                 vidaOverlay.Visible = true
+                 vidaOverlay.Color = Color3.fromRGB(255, 0, 0)
+                 vidaOverlay.Filled = true
+            else
+                 if drawings.VidaBar then drawings.VidaBar.Visible = false end
+                 if drawings.VidaOverlay then drawings.VidaOverlay.Visible = false end
+            end
+        else
+            if drawings.Box then drawings.Box.Visible = false end
+            if drawings.VidaBar then drawings.VidaBar.Visible = false end
+            if drawings.VidaOverlay then drawings.VidaOverlay.Visible = false end
+        end
+
+        -- --- TRACERS (Linha do pé até o centro da tela)
+        if espConfig.Tracers then
+            local tracer = ensureDrawing("Tracer", "Line")
+            tracer.From = Vector2.new(rootPos.X, rootPos.Y)
+            tracer.To = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y) -- Vai do pé até a base central
+            tracer.Visible = true
+            tracer.Color = color
+        else
+            if drawings.Tracer then drawings.Tracer.Visible = false end
+        end
+
+        -- --- TEXTO
+        local yOffset = headPos.Y - 25 -- Começa 25px acima da cabeça
+
+        if espConfig.DisplayName then
+            local dn = ensureDrawing("DisplayName", "Text")
+            dn.Text = player.DisplayName
+            dn.Color = Color3.fromRGB(255, 255, 255)
+            dn.Size = 16
+            dn.Center = true
+            dn.Position = Vector2.new(headPos.X, yOffset)
+            dn.Visible = true
+            yOffset = yOffset - 15
+        else
+            if drawings.DisplayName then drawings.DisplayName.Visible = false end
+        end
+
+        if espConfig.Username then
+            local un = ensureDrawing("Username", "Text")
+            un.Text = player.Name
+            un.Color = Color3.fromRGB(0, 255, 255)
+            un.Size = 14
+            un.Center = true
+            un.Position = Vector2.new(headPos.X, yOffset)
+            un.Visible = true
+            yOffset = yOffset - 15
+        else
+            if drawings.Username then drawings.Username.Visible = false end
+        end
+        
+        -- --- DISTÂNCIA
+        if espConfig.Distancia and myRoot and char:FindFirstChild("HumanoidRootPart") then
+            local dist = ensureDrawing("Distancia", "Text")
+            local distance = math.floor((myRoot.Position - char.HumanoidRootPart.Position).Magnitude)
+            dist.Text = "[" .. distance .. "m]"
+            dist.Color = Color3.fromRGB(255, 255, 0)
+            dist.Size = 14
+            dist.Center = true
+            dist.Position = Vector2.new(headPos.X, yOffset)
+            dist.Visible = true
+            yOffset = yOffset - 15
+        else
+            if drawings.Distancia then drawings.Distancia.Visible = false end
+        end
+        
+        -- --- ITEM SEGURADO
+        if espConfig.Item then 
+            local item = char:FindFirstChildOfClass("Tool") 
+            if item and item.Name ~= "BodyPart" then -- Ignora ferramentas genéricas
+                local itemDraw = ensureDrawing("Item", "Text")
+                itemDraw.Text = "Item: " .. item.Name; itemDraw.Color = Color3.fromRGB(150, 255, 150); itemDraw.Size = 14; itemDraw.Center = true;
+                itemDraw.Position = Vector2.new(headPos.X, yOffset); 
+                itemDraw.Visible = true
+                yOffset = yOffset - 15
+            else 
+                if drawings.Item then drawings.Item.Visible = false end
+            end 
+        else 
+            if drawings.Item then drawings.Item.Visible = false end
+        end
+
+        -- --- LINHA DA MIRA
+        if espConfig.Aim and head then 
+            local lookVector = head.CFrame.LookVector
+            local aimEndPos = head.Position + (lookVector * 50) -- Aumenta o tamanho da linha
+            local aimScreenPos, aimOnScreen = Camera:WorldToViewportPoint(aimEndPos) 
+            
+            if aimOnScreen then 
+                local aimDraw = ensureDrawing("Aim", "Line")
+                aimDraw.From = Vector2.new(headPos.X, headPos.Y); 
+                aimDraw.To = Vector2.new(aimScreenPos.X, aimScreenPos.Y)
+                aimDraw.Color = Color3.fromRGB(255, 0, 0);
+                aimDraw.Visible = true
+                aimDraw.Thickness = 2
+            else 
+                if drawings.Aim then drawings.Aim.Visible = false end
+            end 
+        else
+            if drawings.Aim then drawings.Aim.Visible = false end
+        end
+        
+        -- Limpa o esqueleto (se não estiver em uso)
+        if drawings.Esqueleto then drawings.Esqueleto.Visible = false end
+
+    end
+end)
 
 Window:SelectTab(3)
