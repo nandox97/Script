@@ -1,10 +1,9 @@
 -- =================================================================
--- Nando Hub | v1.5 | Arquivo Fix
+-- Nando Hub | v1.6 | Aimbot Rework
 -- =================================================================
 
 -- =================================================================
 -- LÓGICA DE CONTADOR DE EXECUÇÕES (CORREÇÃO: USANDO ARQUIVO)
--- Requer: isfile, readfile, writefile (funcionalidades do executor)
 -- =================================================================
 
 local EXEC_FILENAME = "NandoHub_Executions.txt"
@@ -53,15 +52,14 @@ local fovSize = 100
 local fovTransparency = 0.3 
 local teamCheckEnabled = false
 local wallCheckEnabled = false
-local legitAimSpeed = 0.3
+local legitAimSpeed = 0.5 -- Ajustado para mais rápido por padrão
 local aimConnection = nil
 local triggerbotEnabled = false
 local triggerWallCheckEnabled = false
 local triggerTeamCheckEnabled = false
 local triggerConnection = nil
 
--- Modo de Aimbot
-local aimbotMode = "Ao Olhar" 
+-- Modo de Aimbot (REMOVIDO: Sempre "Ao Olhar")
 local isShooting = false 
 local fovCircle = nil 
 
@@ -94,7 +92,7 @@ local Window = WindUI:CreateWindow({
 -- --- TAGS E NOTIFICAÇÃO DE INÍCIO ---
 
 -- Adiciona a Tag de Versão
-Window:Tag({ Title = "v1.5 | Arquivo Fix", Icon = "check", Color = Color3.fromHex("#30ff6a"), Radius = 0 })
+Window:Tag({ Title = "v1.6 | Aimbot Fix", Icon = "check", Color = Color3.fromHex("#30ff6a"), Radius = 0 })
 -- Adiciona a Tag de Contagem de Execução
 Window:Tag({ Title = "Execuções: " .. currentExecs, Icon = "counter", Color = Color3.fromHex("#ffa500"), Radius = 0 })
 
@@ -114,7 +112,7 @@ local TabOutros = Window:Tab({ Title = "Outros", Icon = "settings" })
 
 
 -- =================================================================
--- LÓGICA DE AIMBOT/RAYCASTING 
+-- LÓGICA DE AIMBOT/RAYCASTING (v1.6: Ajustes)
 -- =================================================================
 
 local function isVisible(targetPart)
@@ -128,6 +126,7 @@ local function isVisible(targetPart)
     local origin = Camera.CFrame.Position
     local direction = targetPart.Position - origin
     local result = workspace:Raycast(origin, direction, params)
+    
     if result and (result.Instance == targetPart or result.Instance:IsDescendantOf(targetPart.Parent)) then
         return true
     elseif not result then
@@ -147,7 +146,7 @@ local function getNearestTarget()
             local targetChar = player.Character
             local targetPart = nil
             
-            -- Lógica para partes do corpo (v1.3)
+            -- Lógica para partes do corpo
             if aimPart == "Head" then
                 targetPart = targetChar:FindFirstChild("Head")
             elseif aimPart == "Neck" then
@@ -168,7 +167,10 @@ local function getNearestTarget()
                     
                     if distance <= fovSize then
                         
+                        -- Wall Check SÓ FUNCIONA SE LIGADO
                         if wallCheckEnabled and not isVisible(targetPart) then continue end
+                        
+                        -- Team Check SÓ FUNCIONA SE LIGADO
                         if teamCheckEnabled and player.Team == LocalPlayer.Team then continue end
 
                         if distance < smallestFov then
@@ -242,7 +244,7 @@ LocalPlayer.CharacterAdded:Connect(function(character)
 end)
 
 
--- --- AIMBOT LOOP PRINCIPAL ---
+-- --- AIMBOT LOOP PRINCIPAL (v1.6: Apenas "Ao Olhar") ---
 local function updateAimbotState()
     aimbotEnabled = aimbotLegitEnabled or aimbotRageEnabled
     doAimbot()
@@ -258,20 +260,21 @@ local function doAimbot()
     
     if aimbotEnabled and aimConnection == nil then
         aimConnection = RunService.Heartbeat:Connect(function()
-            task.wait(0.03) 
+            task.wait(0.01) -- Frequência aumentada
             updateFov()
 
             local target = getNearestTarget()
             
-            local shouldAim = aimbotMode == "Ao Olhar" or (aimbotMode == "Ao Atirar" and isShooting)
-            
-            if target and shouldAim then
+            -- O aimbot funciona SEMPRE que há um alvo no FOV
+            if target then
                 local targetPos = target.Position
                 local newCFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
                 
                 if aimbotRageEnabled then
+                    -- Rage: Movimento Instantâneo (VAI DIRETO)
                     Camera.CFrame = newCFrame 
                 elseif aimbotLegitEnabled then
+                    -- Legit: Movimento Rápido (usando legitAimSpeed)
                     Camera.CFrame = Camera.CFrame:Lerp(newCFrame, legitAimSpeed)
                 end
             end
@@ -279,7 +282,7 @@ local function doAimbot()
     end
 end
 
--- --- TRIGGER BOT LOOP ---
+-- --- TRIGGER BOT LOOP (mantido) ---
 local function doTriggerBot()
     if not triggerbotEnabled and triggerConnection then
         triggerConnection:Disconnect()
@@ -317,29 +320,17 @@ local function doTriggerBot()
     end
 end
 -- =================================================================
--- TAB: AIMBOT (UI)
+-- TAB: AIMBOT (UI) (v1.6: Simplificado)
 -- =================================================================
 
 local SectionAimbot = TabAimbot:Section({ Title = "Aimbot", Box = false, Opened = true, })
 
--- 0. Tipo de Aimbot
-SectionAimbot:Dropdown({
-    Title = "Tipo de Aimbot",
-    Desc = "Define quando o Aimbot deve puxar a mira.",
-    Values = { "Ao Olhar", "Ao Atirar" },
-    Value = aimbotMode,
-    Callback = function(option)
-        aimbotMode = option
-        WindUI:Notify({Title = "Aimbot", Content = "Modo: " .. option, Duration = 2})
-    end
-})
+-- Dropdown "Tipo de Aimbot" REMOVIDO
 
-SectionAimbot:Divider()
-
--- 1. Ativar Aimbot Legit (Suave)
+-- 1. Ativar Aimbot Legit (Suave/Rápido)
 SectionAimbot:Toggle({
-    Title = "Ativar Aimbot Legit",
-    Desc = "Aimbot suave e discreto (movimento humano).",
+    Title = "Ativar Aimbot Legit (Suave/Rápido)",
+    Desc = "Aimbot suave e rápido, puxa a mira ao olhar para o alvo.",
     Icon = "user_check",
     Type = "Checkbox",
     Value = false,
@@ -351,10 +342,23 @@ SectionAimbot:Toggle({
     end
 })
 
+-- Novo Slider: Velocidade Legit
+SectionAimbot:Slider({
+    Title = "Velocidade Legit (Rapidez)",
+    Desc = "Define a rapidez da transição da mira (0.1 = Lento, 1.0 = Instantâneo).",
+    Step = 0.05,
+    Value = { Min = 0.1, Max = 1.0, Default = 0.5, }, 
+    Callback = function(value)
+        legitAimSpeed = value
+    end
+})
+
+SectionAimbot:Divider()
+
 -- 2. Ativar Aimbot Rage (Instantâneo)
 SectionAimbot:Toggle({
-    Title = "Ativar Aimbot Rage",
-    Desc = "Aimbot agressivo e instantâneo (snap shot).",
+    Title = "Ativar Aimbot Rage (Instantâneo)",
+    Desc = "Aimbot agressivo: mira instantaneamente na cabeça ao entrar no FOV.",
     Icon = "bolt",
     Type = "Checkbox",
     Value = false,
@@ -365,6 +369,8 @@ SectionAimbot:Toggle({
         Window:Update()
     end
 })
+
+SectionAimbot:Divider()
 
 -- 3. Dropdown (Cabeça, Pescoço, Corpo)
 SectionAimbot:Dropdown({
@@ -422,10 +428,10 @@ SectionAimbot:Slider({
 
 SectionAimbot:Divider()
 
--- 7. Ativar Team Check
+-- 7. Ativar Team Check (SÓ FUNCIONA SE LIGADO)
 SectionAimbot:Toggle({
     Title = "Ativar Team Check",
-    Desc = "Impede que o Aimbot atinja colegas de equipa.",
+    Desc = "Impede que o Aimbot atinja colegas de equipa (SÓ ATIVA SE LIGADO).",
     Icon = "users",
     Type = "Checkbox",
     Value = false,
@@ -436,10 +442,10 @@ SectionAimbot:Toggle({
 
 SectionAimbot:Divider()
 
--- 8. Ativar Wall Check
+-- 8. Ativar Wall Check (SÓ FUNCIONA SE LIGADO)
 SectionAimbot:Toggle({
     Title = "Ativar Wall Check",
-    Desc = "Impede que o Aimbot mire em inimigos atrás de paredes (necessita de Raycasting).",
+    Desc = "Impede que o Aimbot mire em inimigos atrás de paredes (SÓ ATIVA SE LIGADO).",
     Icon = "wall_check",
     Type = "Checkbox",
     Value = false,
