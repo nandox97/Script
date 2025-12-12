@@ -1,3 +1,35 @@
+-- =================================================================
+-- Nando Hub | v1.5 | Arquivo Fix
+-- =================================================================
+
+-- =================================================================
+-- LÓGICA DE CONTADOR DE EXECUÇÕES (CORREÇÃO: USANDO ARQUIVO)
+-- Requer: isfile, readfile, writefile (funcionalidades do executor)
+-- =================================================================
+
+local EXEC_FILENAME = "NandoHub_Executions.txt"
+local currentExecs = 0
+
+-- 1. Tenta ler a contagem do arquivo
+pcall(function()
+    if isfile and isfile(EXEC_FILENAME) and readfile then
+        local savedData = readfile(EXEC_FILENAME)
+        if savedData then
+            currentExecs = tonumber(savedData) or 0
+        end
+    end
+end)
+
+currentExecs = currentExecs + 1
+
+-- 2. Salva a nova contagem no arquivo
+pcall(function()
+    if writefile then
+        writefile(EXEC_FILENAME, tostring(currentExecs))
+    end
+end)
+
+
 -- Carregar a Biblioteca WindUI
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 
@@ -31,7 +63,7 @@ local triggerConnection = nil
 -- Modo de Aimbot
 local aimbotMode = "Ao Olhar" 
 local isShooting = false 
-
+local fovCircle = nil 
 
 -- --- DETEÇÃO DE DISPARO ---
 UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
@@ -58,8 +90,21 @@ local Window = WindUI:CreateWindow({
     SideBarWidth = 170,
     HasOutline = true,
 })
-Window:Tag({ Title = "v1.1 | Otimizado", Icon = "check", Color = Color3.fromHex("#30ff6a"), Radius = 0 })
-WindUI:Notify({ Title = "Nando Hub", Content = "Script carregado com sucesso!", Duration = 3, Icon = "info", })
+
+-- --- TAGS E NOTIFICAÇÃO DE INÍCIO ---
+
+-- Adiciona a Tag de Versão
+Window:Tag({ Title = "v1.5 | Arquivo Fix", Icon = "check", Color = Color3.fromHex("#30ff6a"), Radius = 0 })
+-- Adiciona a Tag de Contagem de Execução
+Window:Tag({ Title = "Execuções: " .. currentExecs, Icon = "counter", Color = Color3.fromHex("#ffa500"), Radius = 0 })
+
+-- Notificação única de boas-vindas
+WindUI:Notify({ 
+    Title = "Nando Hub Carregado", 
+    Content = string.format("Bem-vindo(a), %s! (Execução #%d)", LocalPlayer.Name, currentExecs), 
+    Duration = 4, 
+    Icon = "check", 
+})
 
 local TabInfo = Window:Tab({ Title = "Informações", Icon = "info" })
 local TabPlayer = Window:Tab({ Title = "Player", Icon = "user" })
@@ -69,10 +114,9 @@ local TabOutros = Window:Tab({ Title = "Outros", Icon = "settings" })
 
 
 -- =================================================================
--- LÓGICA DE AIMBOT/RAYCASTING
+-- LÓGICA DE AIMBOT/RAYCASTING 
 -- =================================================================
 
--- 1. Wall Check (Raycasting)
 local function isVisible(targetPart)
     local char = LocalPlayer.Character
     if not char then return false end
@@ -92,7 +136,6 @@ local function isVisible(targetPart)
     return false
 end
 
--- 2. Target Selection 
 local function getNearestTarget()
     local nearestTarget = nil
     local smallestFov = fovSize + 1
@@ -100,8 +143,22 @@ local function getNearestTarget()
     
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            
             local targetChar = player.Character
-            local targetPart = targetChar:FindFirstChild(aimPart) or targetChar:FindFirstChild("Head")
+            local targetPart = nil
+            
+            -- Lógica para partes do corpo (v1.3)
+            if aimPart == "Head" then
+                targetPart = targetChar:FindFirstChild("Head")
+            elseif aimPart == "Neck" then
+                targetPart = targetChar:FindFirstChild("Neck") or targetChar:FindFirstChild("UpperTorso")
+            elseif aimPart == "Torso" then
+                targetPart = targetChar:FindFirstChild("UpperTorso") or targetChar:FindFirstChild("Torso") or targetChar:FindFirstChild("LowerTorso")
+            end
+            
+            if not targetPart then
+                targetPart = targetChar:FindFirstChild("Head")
+            end
             
             if targetPart then
                 local screenPoint, isonScreen = Camera:WorldToScreenPoint(targetPart.Position)
@@ -110,6 +167,7 @@ local function getNearestTarget()
                     local distance = (Vector2.new(screenPoint.X, screenPoint.Y) - origin).Magnitude
                     
                     if distance <= fovSize then
+                        
                         if wallCheckEnabled and not isVisible(targetPart) then continue end
                         if teamCheckEnabled and player.Team == LocalPlayer.Team then continue end
 
@@ -126,7 +184,6 @@ local function getNearestTarget()
 end
 
 -- --- FOV FUNÇÕES ---
-local fovCircle = nil
 local function createFovCircle()
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return end
@@ -134,22 +191,22 @@ local function createFovCircle()
     ScreenGui.Name = "AimbotFovGui"
     ScreenGui.DisplayOrder = 999
     ScreenGui.Parent = playerGui
-    local Frame = ScreenGui:FindFirstChild("FovFrame") or Instance.new("Frame")
-    Frame.Name = "FovFrame"
-    Frame.AnchorPoint = Vector2.new(0.5, 0.5)
-    Frame.BackgroundTransparency = 1
-    Frame.ZIndex = 1
-    local UICorner = Frame:FindFirstChild("UICorner") or Instance.new("UICorner")
+    fovCircle = ScreenGui:FindFirstChild("FovFrame") or Instance.new("Frame")
+    fovCircle.Name = "FovFrame"
+    fovCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+    fovCircle.BackgroundTransparency = 1
+    fovCircle.ZIndex = 1
+    local UICorner = fovCircle:FindFirstChild("UICorner") or Instance.new("UICorner")
     UICorner.CornerRadius = UDim.new(1, 0) 
-    UICorner.Parent = Frame
-    local UIStroke = Frame:FindFirstChild("UIStroke") or Instance.new("UIStroke")
+    UICorner.Parent = fovCircle
+    local UIStroke = fovCircle:FindFirstChild("UIStroke") or Instance.new("UIStroke")
     UIStroke.Thickness = 3 
     UIStroke.Color = Color3.new(1, 1, 1) 
     UIStroke.Transparency = fovTransparency 
     UIStroke.LineJoinMode = Enum.LineJoinMode.Round
-    UIStroke.Parent = Frame
-    Frame.Parent = ScreenGui
-    return Frame
+    UIStroke.Parent = fovCircle
+    fovCircle.Parent = ScreenGui
+    return fovCircle
 end
 
 local function updateFov()
@@ -157,20 +214,17 @@ local function updateFov()
         fovCircle.Visible = false
         return
     elseif not fovEnabled then
+        if fovCircle then fovCircle.Visible = false end
         return
     end
-
     if not fovCircle or not fovCircle.Parent then
         fovCircle = createFovCircle()
     end
-    
     if not fovCircle then return end
-    
     local size = UDim2.new(0, fovSize * 2, 0, fovSize * 2)
     fovCircle.Size = size
     fovCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
     fovCircle.Visible = true
-
     local uiStroke = fovCircle:FindFirstChild("UIStroke")
     if uiStroke then
         uiStroke.Transparency = fovTransparency
@@ -178,7 +232,17 @@ local function updateFov()
     end
 end
 
--- --- AIMBOT LOOP E ATUALIZAÇÃO ---
+LocalPlayer.CharacterAdded:Connect(function(character)
+    if fovEnabled then
+        task.spawn(function()
+            task.wait(0.5) 
+            updateFov()
+        end)
+    end
+end)
+
+
+-- --- AIMBOT LOOP PRINCIPAL ---
 local function updateAimbotState()
     aimbotEnabled = aimbotLegitEnabled or aimbotRageEnabled
     doAimbot()
@@ -198,6 +262,7 @@ local function doAimbot()
             updateFov()
 
             local target = getNearestTarget()
+            
             local shouldAim = aimbotMode == "Ao Olhar" or (aimbotMode == "Ao Atirar" and isShooting)
             
             if target and shouldAim then
@@ -239,6 +304,7 @@ local function doTriggerBot()
                 local targetHumanoid = result.Instance.Parent:FindFirstChildOfClass("Humanoid")
                 
                 if targetHumanoid and targetHumanoid.Health > 0 and targetHumanoid.Parent ~= LocalPlayer.Character then
+                    
                     local targetPlayer = Players:GetPlayerFromCharacter(targetHumanoid.Parent)
                     
                     if triggerTeamCheckEnabled and targetPlayer and targetPlayer.Team == LocalPlayer.Team then return end
@@ -308,8 +374,8 @@ SectionAimbot:Dropdown({
     Value = "Cabeça",
     Callback = function(option)
         if option == "Cabeça" then aimPart = "Head"
-        elseif option == "Pescoço" then aimPart = "Neck"
-        elseif option == "Corpo" then aimPart = "Torso"
+        elseif option == "Pescoço" then aimPart = "Neck" 
+        elseif option == "Corpo" then aimPart = "Torso" 
         end
         WindUI:Notify({Title = "Aimbot", Content = "Alvo definido para: " .. option, Duration = 2})
     end
@@ -426,9 +492,8 @@ SectionTriggerBot:Toggle({
         triggerTeamCheckEnabled = state
     end
 })
-
 -- =================================================================
--- TAB: PLAYER E INFO
+-- RESTO DO SCRIPT (PLAYER, FLY, INFO)
 -- =================================================================
 
 -- TAB: INFORMAÇÕES
@@ -436,7 +501,7 @@ local SectionCreditos = TabInfo:Section({ Title = "Creditos", Box = false, Opene
 SectionCreditos:Paragraph({ Title = "Credits / Créditos", Desc = "Developed by: nandoxx._. on discord", Locked = false, })
 SectionCreditos:Paragraph({ Title = "Dates / Datas", Desc = "Created: December 12, 2025 (12 de Dezembro de 2025)\nLast Update: December 12, 2025 (12 de Dezembro de 2025)", Locked = false, })
 
--- TAB: PLAYER INFO
+-- TAB: PLAYER
 local SectionPlayerInfo = TabPlayer:Section({ Title = "Informações do Player", Box = false, Opened = true, })
 
 local playerIcon = "rbxassetid://10723415903"
@@ -478,6 +543,7 @@ task.spawn(function()
         )
     end
 end)
+
 -- --- IMPLEMENTAÇÃO DOS BOTÕES DE ALTITUDE (UP/DOWN) ---
 local ScreenGuiControls = Instance.new("ScreenGui")
 ScreenGuiControls.Name = "NandoHubAltitudeControls"
@@ -640,5 +706,4 @@ end)
 SectionJump:Toggle({ Title = "Ativar Power Jump", Desc = "Aumenta a altura máxima do salto.", Icon = "jump", Type = "Checkbox", Value = false, Callback = function(state) jumpEnabled = state if not state and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then LocalPlayer.Character.Humanoid.JumpPower = 50 end end })
 SectionJump:Slider({ Title = "Power Jump", Desc = "Define a força do salto.", Step = 1, Value = { Min = 50, Max = 300, Default = 50, }, Callback = function(value) jumpValue = value if jumpEnabled and LocalPlayer.Character then LocalPlayer.Character.Humanoid.JumpPower = value end end })
 
--- Seleciona a aba Aimbot no final
 Window:SelectTab(3)
