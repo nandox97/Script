@@ -1,0 +1,644 @@
+-- Carregar a Biblioteca WindUI
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+
+-- --- SERVIÇOS & VARS ---
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
+local UserInputService = game:GetService("UserInputService")
+
+-- Estado de Voo (para os botões de altitude)
+local flyState = 0 
+-- Variáveis de Estado (Aimbot/Trigger)
+local aimbotLegitEnabled = false 
+local aimbotRageEnabled = false 
+local aimbotEnabled = false 
+local aimPart = "Head" 
+local fovEnabled = false
+local fovSize = 100
+local fovTransparency = 0.3 
+local teamCheckEnabled = false
+local wallCheckEnabled = false
+local legitAimSpeed = 0.3
+local aimConnection = nil
+local triggerbotEnabled = false
+local triggerWallCheckEnabled = false
+local triggerTeamCheckEnabled = false
+local triggerConnection = nil
+
+-- Modo de Aimbot
+local aimbotMode = "Ao Olhar" 
+local isShooting = false 
+
+
+-- --- DETEÇÃO DE DISPARO ---
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+    if not gameProcessedEvent and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
+        isShooting = true
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isShooting = false
+    end
+end)
+
+-- --- CRIAÇÃO DA JANELA E TABS ---
+local Window = WindUI:CreateWindow({
+    Title = "Nando Hub",
+    Icon = "rbxassetid://10723415903",
+    Author = "nandoxx._.",
+    Folder = "NandoHub",
+    Size = UDim2.fromOffset(580, 460),
+    Transparent = true,
+    Theme = "Dark",
+    SideBarWidth = 170,
+    HasOutline = true,
+})
+Window:Tag({ Title = "v1.1 | Otimizado", Icon = "check", Color = Color3.fromHex("#30ff6a"), Radius = 0 })
+WindUI:Notify({ Title = "Nando Hub", Content = "Script carregado com sucesso!", Duration = 3, Icon = "info", })
+
+local TabInfo = Window:Tab({ Title = "Informações", Icon = "info" })
+local TabPlayer = Window:Tab({ Title = "Player", Icon = "user" })
+local TabAimbot = Window:Tab({ Title = "Aimbot", Icon = "crosshair" })
+local TabEsp = Window:Tab({ Title = "Esp", Icon = "eye" })
+local TabOutros = Window:Tab({ Title = "Outros", Icon = "settings" })
+
+
+-- =================================================================
+-- LÓGICA DE AIMBOT/RAYCASTING
+-- =================================================================
+
+-- 1. Wall Check (Raycasting)
+local function isVisible(targetPart)
+    local char = LocalPlayer.Character
+    if not char then return false end
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    local params = RaycastParams.new()
+    params.FilterDescendantsInstances = { char, targetPart.Parent } 
+    params.FilterType = Enum.RaycastFilterType.Exclude 
+    local origin = Camera.CFrame.Position
+    local direction = targetPart.Position - origin
+    local result = workspace:Raycast(origin, direction, params)
+    if result and (result.Instance == targetPart or result.Instance:IsDescendantOf(targetPart.Parent)) then
+        return true
+    elseif not result then
+        return true
+    end
+    return false
+end
+
+-- 2. Target Selection 
+local function getNearestTarget()
+    local nearestTarget = nil
+    local smallestFov = fovSize + 1
+    local origin = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
+            local targetChar = player.Character
+            local targetPart = targetChar:FindFirstChild(aimPart) or targetChar:FindFirstChild("Head")
+            
+            if targetPart then
+                local screenPoint, isonScreen = Camera:WorldToScreenPoint(targetPart.Position)
+                
+                if isonScreen then
+                    local distance = (Vector2.new(screenPoint.X, screenPoint.Y) - origin).Magnitude
+                    
+                    if distance <= fovSize then
+                        if wallCheckEnabled and not isVisible(targetPart) then continue end
+                        if teamCheckEnabled and player.Team == LocalPlayer.Team then continue end
+
+                        if distance < smallestFov then
+                            smallestFov = distance
+                            nearestTarget = targetPart 
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nearestTarget
+end
+
+-- --- FOV FUNÇÕES ---
+local fovCircle = nil
+local function createFovCircle()
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then return end
+    local ScreenGui = playerGui:FindFirstChild("AimbotFovGui") or Instance.new("ScreenGui")
+    ScreenGui.Name = "AimbotFovGui"
+    ScreenGui.DisplayOrder = 999
+    ScreenGui.Parent = playerGui
+    local Frame = ScreenGui:FindFirstChild("FovFrame") or Instance.new("Frame")
+    Frame.Name = "FovFrame"
+    Frame.AnchorPoint = Vector2.new(0.5, 0.5)
+    Frame.BackgroundTransparency = 1
+    Frame.ZIndex = 1
+    local UICorner = Frame:FindFirstChild("UICorner") or Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(1, 0) 
+    UICorner.Parent = Frame
+    local UIStroke = Frame:FindFirstChild("UIStroke") or Instance.new("UIStroke")
+    UIStroke.Thickness = 3 
+    UIStroke.Color = Color3.new(1, 1, 1) 
+    UIStroke.Transparency = fovTransparency 
+    UIStroke.LineJoinMode = Enum.LineJoinMode.Round
+    UIStroke.Parent = Frame
+    Frame.Parent = ScreenGui
+    return Frame
+end
+
+local function updateFov()
+    if not fovEnabled and fovCircle and fovCircle.Visible then
+        fovCircle.Visible = false
+        return
+    elseif not fovEnabled then
+        return
+    end
+
+    if not fovCircle or not fovCircle.Parent then
+        fovCircle = createFovCircle()
+    end
+    
+    if not fovCircle then return end
+    
+    local size = UDim2.new(0, fovSize * 2, 0, fovSize * 2)
+    fovCircle.Size = size
+    fovCircle.Position = UDim2.new(0.5, 0, 0.5, 0)
+    fovCircle.Visible = true
+
+    local uiStroke = fovCircle:FindFirstChild("UIStroke")
+    if uiStroke then
+        uiStroke.Transparency = fovTransparency
+        uiStroke.Thickness = 3
+    end
+end
+
+-- --- AIMBOT LOOP E ATUALIZAÇÃO ---
+local function updateAimbotState()
+    aimbotEnabled = aimbotLegitEnabled or aimbotRageEnabled
+    doAimbot()
+end
+
+local function doAimbot()
+    if not aimbotEnabled and aimConnection then
+        aimConnection:Disconnect()
+        aimConnection = nil
+        updateFov()
+        return
+    end
+    
+    if aimbotEnabled and aimConnection == nil then
+        aimConnection = RunService.Heartbeat:Connect(function()
+            task.wait(0.03) 
+            updateFov()
+
+            local target = getNearestTarget()
+            local shouldAim = aimbotMode == "Ao Olhar" or (aimbotMode == "Ao Atirar" and isShooting)
+            
+            if target and shouldAim then
+                local targetPos = target.Position
+                local newCFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+                
+                if aimbotRageEnabled then
+                    Camera.CFrame = newCFrame 
+                elseif aimbotLegitEnabled then
+                    Camera.CFrame = Camera.CFrame:Lerp(newCFrame, legitAimSpeed)
+                end
+            end
+        end)
+    end
+end
+
+-- --- TRIGGER BOT LOOP ---
+local function doTriggerBot()
+    if not triggerbotEnabled and triggerConnection then
+        triggerConnection:Disconnect()
+        triggerConnection = nil
+        return
+    end
+    
+    if triggerbotEnabled and triggerConnection == nil then
+        triggerConnection = RunService.Heartbeat:Connect(function()
+            task.wait(0.03) 
+            
+            local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+            local unitRay = Camera:ViewportPointToRay(center.X, center.Y)
+            
+            local params = RaycastParams.new()
+            params.FilterDescendantsInstances = { LocalPlayer.Character }
+            params.FilterType = Enum.RaycastFilterType.Exclude
+
+            local result = workspace:Raycast(unitRay.Origin, unitRay.Direction * 1000, params)
+            
+            if result then
+                local targetHumanoid = result.Instance.Parent:FindFirstChildOfClass("Humanoid")
+                
+                if targetHumanoid and targetHumanoid.Health > 0 and targetHumanoid.Parent ~= LocalPlayer.Character then
+                    local targetPlayer = Players:GetPlayerFromCharacter(targetHumanoid.Parent)
+                    
+                    if triggerTeamCheckEnabled and targetPlayer and targetPlayer.Team == LocalPlayer.Team then return end
+                    if triggerWallCheckEnabled and not isVisible(result.Instance) then return end
+
+                    Mouse:Click()
+                end
+            end
+        end)
+    end
+end
+-- =================================================================
+-- TAB: AIMBOT (UI)
+-- =================================================================
+
+local SectionAimbot = TabAimbot:Section({ Title = "Aimbot", Box = false, Opened = true, })
+
+-- 0. Tipo de Aimbot
+SectionAimbot:Dropdown({
+    Title = "Tipo de Aimbot",
+    Desc = "Define quando o Aimbot deve puxar a mira.",
+    Values = { "Ao Olhar", "Ao Atirar" },
+    Value = aimbotMode,
+    Callback = function(option)
+        aimbotMode = option
+        WindUI:Notify({Title = "Aimbot", Content = "Modo: " .. option, Duration = 2})
+    end
+})
+
+SectionAimbot:Divider()
+
+-- 1. Ativar Aimbot Legit (Suave)
+SectionAimbot:Toggle({
+    Title = "Ativar Aimbot Legit",
+    Desc = "Aimbot suave e discreto (movimento humano).",
+    Icon = "user_check",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        aimbotLegitEnabled = state
+        if state and aimbotRageEnabled then aimbotRageEnabled = false end 
+        updateAimbotState()
+        Window:Update() 
+    end
+})
+
+-- 2. Ativar Aimbot Rage (Instantâneo)
+SectionAimbot:Toggle({
+    Title = "Ativar Aimbot Rage",
+    Desc = "Aimbot agressivo e instantâneo (snap shot).",
+    Icon = "bolt",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        aimbotRageEnabled = state
+        if state and aimbotLegitEnabled then aimbotLegitEnabled = false end 
+        updateAimbotState()
+        Window:Update()
+    end
+})
+
+-- 3. Dropdown (Cabeça, Pescoço, Corpo)
+SectionAimbot:Dropdown({
+    Title = "Parte do Alvo",
+    Desc = "Define a parte do corpo a ser alvejada.",
+    Values = { "Cabeça", "Pescoço", "Corpo" },
+    Value = "Cabeça",
+    Callback = function(option)
+        if option == "Cabeça" then aimPart = "Head"
+        elseif option == "Pescoço" then aimPart = "Neck"
+        elseif option == "Corpo" then aimPart = "Torso"
+        end
+        WindUI:Notify({Title = "Aimbot", Content = "Alvo definido para: " .. option, Duration = 2})
+    end
+})
+
+SectionAimbot:Divider()
+
+-- 4. Ativar FOV
+SectionAimbot:Toggle({
+    Title = "Ativar FOV",
+    Desc = "Desenha o círculo do campo de visão na tela.",
+    Icon = "eye_open",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        fovEnabled = state
+        updateFov()
+    end
+})
+
+-- 5. Tamanho do FOV
+SectionAimbot:Slider({
+    Title = "Tamanho do FOV",
+    Desc = "Define o raio do campo de visão (em pixels).",
+    Step = 5,
+    Value = { Min = 10, Max = 600, Default = 100, },
+    Callback = function(value)
+        fovSize = value
+        updateFov()
+    end
+})
+
+-- 6. Transparência do FOV
+SectionAimbot:Slider({
+    Title = "Transparência do FOV",
+    Desc = "Controla a transparência do círculo FOV (0.0 = Visível, 1.0 = Invisível).",
+    Step = 0.05,
+    Value = { Min = 0.0, Max = 1.0, Default = 0.3, },
+    Callback = function(value)
+        fovTransparency = value
+        updateFov()
+    end
+})
+
+SectionAimbot:Divider()
+
+-- 7. Ativar Team Check
+SectionAimbot:Toggle({
+    Title = "Ativar Team Check",
+    Desc = "Impede que o Aimbot atinja colegas de equipa.",
+    Icon = "users",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        teamCheckEnabled = state
+    end
+})
+
+SectionAimbot:Divider()
+
+-- 8. Ativar Wall Check
+SectionAimbot:Toggle({
+    Title = "Ativar Wall Check",
+    Desc = "Impede que o Aimbot mire em inimigos atrás de paredes (necessita de Raycasting).",
+    Icon = "wall_check",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        wallCheckEnabled = state
+    end
+})
+
+
+-- --- SECÇÃO: TRIGGER BOT ---
+local SectionTriggerBot = TabAimbot:Section({ Title = "Trigger Bot", Box = false, Opened = true, })
+
+-- 1. Ativar Trigger Bot
+SectionTriggerBot:Toggle({
+    Title = "Ativar Trigger Bot",
+    Desc = "Atira automaticamente quando a mira está sobre um inimigo.",
+    Icon = "target",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        triggerbotEnabled = state
+        doTriggerBot() 
+    end
+})
+
+SectionTriggerBot:Divider()
+
+-- 2. Ativar Wall Check (Trigger Bot)
+SectionTriggerBot:Toggle({
+    Title = "Ativar Wall Check",
+    Desc = "Impede o Trigger Bot de atirar através de paredes.",
+    Icon = "wall_check",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        triggerWallCheckEnabled = state
+    end
+})
+
+SectionTriggerBot:Divider()
+
+-- 3. Ativar Team Check (Trigger Bot)
+SectionTriggerBot:Toggle({
+    Title = "Ativar Team Check",
+    Desc = "Impede que o Trigger Bot atire em colegas de equipa.",
+    Icon = "users",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        triggerTeamCheckEnabled = state
+    end
+})
+
+-- =================================================================
+-- TAB: PLAYER E INFO
+-- =================================================================
+
+-- TAB: INFORMAÇÕES
+local SectionCreditos = TabInfo:Section({ Title = "Creditos", Box = false, Opened = true, })
+SectionCreditos:Paragraph({ Title = "Credits / Créditos", Desc = "Developed by: nandoxx._. on discord", Locked = false, })
+SectionCreditos:Paragraph({ Title = "Dates / Datas", Desc = "Created: December 12, 2025 (12 de Dezembro de 2025)\nLast Update: December 12, 2025 (12 de Dezembro de 2025)", Locked = false, })
+
+-- TAB: PLAYER INFO
+local SectionPlayerInfo = TabPlayer:Section({ Title = "Informações do Player", Box = false, Opened = true, })
+
+local playerIcon = "rbxassetid://10723415903"
+pcall(function()
+    playerIcon = Players:GetUserThumbnailAsync(LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)
+end)
+
+local StatusParagraph = SectionPlayerInfo:Paragraph({
+    Title = LocalPlayer.DisplayName .. " (@" .. LocalPlayer.Name .. ")",
+    Desc = "Calculando Ping e FPS...",
+    Image = playerIcon, 
+    ImageSize = 50,
+    Locked = false,
+})
+
+task.spawn(function()
+    while task.wait(1) do
+        if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("Humanoid") then
+            StatusParagraph:SetDesc("Aguardando carregamento do Character...")
+            continue
+        end
+
+        local stats = game:GetService("Stats")
+        local ping = 0
+        pcall(function() ping = math.floor(stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
+        
+        local fps = math.floor(workspace:GetRealPhysicsFPS())
+        
+        local fpsColor = "ff0000"
+        if fps >= 50 then fpsColor = "00ff00"
+        elseif fps >= 30 then fpsColor = "ffff00" end
+        
+        local pingColor = "ff0000"
+        if ping < 100 then pingColor = "00ff00"
+        elseif ping < 200 then pingColor = "ffff00" end
+
+        StatusParagraph:SetDesc(
+            string.format("FPS: <font color='#%s'>%d</font> | Ping: <font color='#%s'>%d ms</font>", fpsColor, fps, pingColor, ping)
+        )
+    end
+end)
+-- --- IMPLEMENTAÇÃO DOS BOTÕES DE ALTITUDE (UP/DOWN) ---
+local ScreenGuiControls = Instance.new("ScreenGui")
+ScreenGuiControls.Name = "NandoHubAltitudeControls"
+ScreenGuiControls.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+local function createButton(name, position, size, text, state)
+    local btn = Instance.new("TextButton")
+    btn.Name = name
+    btn.Size = size
+    btn.Position = position
+    btn.Text = text
+    btn.Font = Enum.Font.SourceSans
+    btn.TextSize = 20
+    btn.TextColor3 = Color3.new(1, 1, 1)
+    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    btn.BorderColor3 = Color3.fromRGB(0, 0, 0)
+    btn.BorderSizePixel = 1
+    btn.Visible = false
+    
+    btn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            flyState = state
+        end
+    end)
+    
+    btn.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if flyState == state then flyState = 0 end
+        end
+    end)
+    
+    btn.Parent = ScreenGuiControls
+    return btn
+end
+
+local btnUp = createButton("UpButton", UDim2.new(1, -120, 1, -180), UDim2.new(0, 100, 0, 60), "UP", 1)
+local btnDown = createButton("DownButton", UDim2.new(1, -120, 1, -100), UDim2.new(0, 100, 0, 60), "DOWN", -1)
+
+ScreenGuiControls.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- --- SECÇÃO: FLY ---
+local SectionFly = TabPlayer:Section({ Title = "Fly", Box = false, Opened = true, })
+local flyEnabled = false
+local flySpeed = 50
+local bodyVelocity = nil
+local bodyGyro = nil
+
+local function updateFly()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChild("Humanoid")
+    
+    if flyEnabled and root and hum then
+        btnUp.Visible = true
+        btnDown.Visible = true
+        
+        if not bodyVelocity then
+            bodyVelocity = Instance.new("BodyVelocity")
+            bodyVelocity.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+            bodyVelocity.Parent = root
+            
+            bodyGyro = Instance.new("BodyGyro")
+            bodyGyro.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+            bodyGyro.P = 10000
+            bodyGyro.D = 100
+            bodyGyro.Parent = root
+            
+            hum.PlatformStand = true
+        end
+        
+        task.spawn(function()
+            while flyEnabled and root and bodyVelocity do
+                local cam = workspace.CurrentCamera
+                local horizontalMoveDir = hum.MoveDirection * flySpeed
+                local verticalMove = Vector3.new(0, flyState * flySpeed, 0)
+                
+                bodyVelocity.Velocity = horizontalMoveDir + verticalMove
+                
+                if bodyGyro then bodyGyro.CFrame = cam.CFrame end
+                RunService.Stepped:Wait() 
+            end
+        end)
+    else
+        btnUp.Visible = false
+        btnDown.Visible = false
+        flyState = 0
+        
+        if bodyVelocity then bodyVelocity:Destroy() bodyVelocity = nil end
+        if bodyGyro then bodyGyro:Destroy() bodyGyro = nil end
+        if hum then hum.PlatformStand = false end
+    end
+end
+
+SectionFly:Toggle({ Title = "Fly", Desc = "Ativa o modo de voo. Use os botões UP/DOWN na tela para altitude.", Icon = "rocket", Type = "Checkbox", Value = false, Callback = function(state) flyEnabled = state updateFly() end })
+SectionFly:Slider({ Title = "Fly Speed", Desc = "Controla a velocidade horizontal e vertical do voo.", Step = 1, Value = { Min = 16, Max = 200, Default = 50, }, Callback = function(value) flySpeed = value end })
+SectionFly:Divider()
+
+-- --- SECÇÃO: NO CLIP ---
+local SectionNoClip = TabPlayer:Section({ Title = "No Clip", Box = false, Opened = true, })
+local noclipEnabled = false
+local noclipConnection = nil
+
+SectionNoClip:Toggle({
+    Title = "Ativar NoClip",
+    Desc = "Desativa a colisão do personagem (Permite atravessar paredes).",
+    Icon = "shield_off",
+    Type = "Checkbox",
+    Value = false,
+    Callback = function(state)
+        noclipEnabled = state
+        WindUI:Notify({Title = "NoClip", Content = "Estado: " .. (noclipEnabled and "Ativado" or "Desativado"), Duration = 2})
+        
+        if noclipEnabled then
+            noclipConnection = RunService.Stepped:Connect(function()
+                if LocalPlayer.Character then
+                    for _, v in pairs(LocalPlayer.Character:GetDescendants()) do
+                        if v:IsA("BasePart") and v.CanCollide == true then
+                            v.CanCollide = false
+                        end
+                    end
+                end
+            end)
+        else
+            if noclipConnection then noclipConnection:Disconnect() noclipConnection = nil end
+        end
+    end
+})
+
+-- --- SECÇÃO: PLAYER SPEED ---
+local SectionSpeed = TabPlayer:Section({ Title = "Player Speed", Box = false, Opened = true, })
+local speedEnabled = false
+local speedValue = 16
+
+task.spawn(function()
+    while task.wait(0.5) do
+        if speedEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.WalkSpeed = speedValue
+        end
+    end
+end)
+
+SectionSpeed:Toggle({ Title = "Ativar Speed", Desc = "Aumenta a velocidade de movimento do personagem.", Icon = "run", Type = "Checkbox", Value = false, Callback = function(state) speedEnabled = state if not state and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then LocalPlayer.Character.Humanoid.WalkSpeed = 16 end end })
+SectionSpeed:Slider({ Title = "Player Speed", Desc = "Define o valor da velocidade de caminhada.", Step = 1, Value = { Min = 16, Max = 200, Default = 16, }, Callback = function(value) speedValue = value if speedEnabled and LocalPlayer.Character then LocalPlayer.Character.Humanoid.WalkSpeed = value end end })
+SectionSpeed:Divider()
+
+-- --- SECÇÃO: POWER JUMP ---
+local SectionJump = TabPlayer:Section({ Title = "Power Jump", Box = false, Opened = true, })
+local jumpEnabled = false
+local jumpValue = 50
+
+task.spawn(function()
+    while task.wait(0.5) do
+        if jumpEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            LocalPlayer.Character.Humanoid.UseJumpPower = true
+            LocalPlayer.Character.Humanoid.JumpPower = jumpValue
+        end
+    end
+end)
+
+SectionJump:Toggle({ Title = "Ativar Power Jump", Desc = "Aumenta a altura máxima do salto.", Icon = "jump", Type = "Checkbox", Value = false, Callback = function(state) jumpEnabled = state if not state and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then LocalPlayer.Character.Humanoid.JumpPower = 50 end end })
+SectionJump:Slider({ Title = "Power Jump", Desc = "Define a força do salto.", Step = 1, Value = { Min = 50, Max = 300, Default = 50, }, Callback = function(value) jumpValue = value if jumpEnabled and LocalPlayer.Character then LocalPlayer.Character.Humanoid.JumpPower = value end end })
+
+-- Seleciona a aba Aimbot no final
+Window:SelectTab(3)
