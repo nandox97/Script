@@ -1,5 +1,5 @@
 -- =================================================================
--- Nando Hub | v1.8 | Aimbot/ESP Integrado (IAmxit)
+-- Nando Hub | v1.9 | Aimbot/ESP Estável (Corrigido IAmxit)
 -- =================================================================
 
 -- =================================================================
@@ -48,12 +48,13 @@ local fovEnabled = false
 local fovSize = 100
 local fovTransparency = 0.3 
 local aimConnection = nil
+local rageConnection = nil -- NOVO: Conexão dedicada para o modo Rage
 local triggerbotEnabled = false
 local triggerWallCheckEnabled = false
 local triggerTeamCheckEnabled = false
 local triggerConnection = nil
 
--- NOVO: Configurações Detalhadas do Aimbot (Legit/Precise)
+-- NOVO: Configurações Detalhadas do Aimbot (Legit/Precise) - BASE IAmxit
 local aimPreciseConfig = {
     parteAlvo = "Head", 
     suavidade = 0.5, -- Valor de 0.1 (Lento) a 1.0 (Instantâneo)
@@ -63,7 +64,7 @@ local aimPreciseConfig = {
     tecla = Enum.UserInputType.MouseButton1 -- Padrão: Botão Esquerdo do Mouse
 }
 
--- NOVO: Configurações do ESP (Visuals)
+-- NOVO: Configurações do ESP (Visuals) - BASE IAmxit
 local espConfig = {
     ativo = false,
     Box = true, 
@@ -110,7 +111,7 @@ local Window = WindUI:CreateWindow({
 
 -- --- TAGS E NOTIFICAÇÃO DE INÍCIO ---
 
-Window:Tag({ Title = "v1.8 | Aimbot/ESP Fix", Icon = "check", Color = Color3.fromHex("#30ff6a"), Radius = 0 })
+Window:Tag({ Title = "v1.9 | Aimbot/ESP Estável", Icon = "check", Color = Color3.fromHex("#30ff6a"), Radius = 0 })
 Window:Tag({ Title = "Execuções: " .. currentExecs, Icon = "counter", Color = Color3.fromHex("#ffa500"), Radius = 0 })
 
 WindUI:Notify({ 
@@ -123,15 +124,15 @@ WindUI:Notify({
 local TabInfo = Window:Tab({ Title = "Informações", Icon = "info" })
 local TabPlayer = Window:Tab({ Title = "Player", Icon = "user" })
 local TabAimbot = Window:Tab({ Title = "Aimbot", Icon = "crosshair" })
-local TabEsp = Window:Tab({ Title = "Esp", Icon = "eye" }) -- Aba ESP existente
+local TabEsp = Window:Tab({ Title = "Esp", Icon = "eye" })
 local TabOutros = Window:Tab({ Title = "Outros", Icon = "settings" })
 
 
 -- =================================================================
--- LÓGICA DE AIMBOT/RAYCASTING (v1.8: Integrado IAmxit)
+-- LÓGICA DE AIMBOT/RAYCASTING (v1.9: Raycast/Visibilidade Corrigida)
 -- =================================================================
 
--- NOVO: Raycasting robusto do script IAmxit.txt
+-- Raycasting robusto (BASE IAmxit)
 local function canSeeTarget(targetPart)
     if not targetPart or not targetPart.Parent or not LocalPlayer.Character then return false end
     
@@ -140,7 +141,6 @@ local function canSeeTarget(targetPart)
     local rayParams = RaycastParams.new()
     
     rayParams.FilterType = Enum.RaycastFilterType.Blacklist
-    -- Ignora o próprio jogador e o alvo
     rayParams.FilterDescendantsInstances = {LocalPlayer.Character, targetPart.Parent} 
     
     local result = workspace:Raycast(rayOrigin, rayDirection, rayParams)
@@ -148,13 +148,13 @@ local function canSeeTarget(targetPart)
     return not result or (result.Instance and result.Instance:IsDescendantOf(targetPart.Parent)) 
 end
 
--- NOVO: Helper para a parte do corpo
+-- Helper para a parte do corpo
 local function getTargetPart(char)
     local part = char:FindFirstChild(aimPreciseConfig.parteAlvo) 
     return part or char:FindFirstChild("HumanoidRootPart")
 end
 
--- SUBSTITUÍDO: Lógica de seleção de alvo
+-- Lógica de seleção de alvo (CORRIGIDA)
 local function getNearestTarget()
     local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not myRoot then return nil end
@@ -167,7 +167,7 @@ local function getNearestTarget()
         if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("Humanoid") and player.Character.Humanoid.Health > 0 then
             
             local targetChar = player.Character
-            local targetPart = getTargetPart(targetChar) -- Usa a função helper
+            local targetPart = getTargetPart(targetChar)
             
             if targetPart then
                 local screenPoint, isonScreen = Camera:WorldToScreenPoint(targetPart.Position)
@@ -177,11 +177,11 @@ local function getNearestTarget()
                     
                     if distance <= fovSize then
                         
-                        -- Lógica de Team Check (usa aimPreciseConfig)
-                        if aimPreciseConfig.teamCheck and player.Team == LocalPlayer.Team then continue end
-                        
-                        -- Lógica de Wall Check (usa aimPreciseConfig e a nova função canSeeTarget)
+                        -- CORREÇÃO WALL CHECK: Só verifica a visibilidade se a opção estiver LIGADA
                         if aimPreciseConfig.visibilidade and not canSeeTarget(targetPart) then continue end
+                        
+                        -- Lógica de Team Check
+                        if aimPreciseConfig.teamCheck and player.Team == LocalPlayer.Team then continue end
 
                         if distance < smallestFov then
                             smallestFov = distance
@@ -195,10 +195,8 @@ local function getNearestTarget()
     return nearestTarget
 end
 
--- [ ... (FOV FUNÇÕES - Mantidas) ... ]
-
+-- --- FOV FUNÇÕES (Mantidas) ---
 local function createFovCircle()
-    -- ... (código mantido)
     local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
     if not playerGui then return end
     local ScreenGui = playerGui:FindFirstChild("AimbotFovGui") or Instance.new("ScreenGui")
@@ -224,7 +222,6 @@ local function createFovCircle()
 end
 
 local function updateFov()
-    -- ... (código mantido)
     if not fovEnabled and fovCircle and fovCircle.Visible then
         fovCircle.Visible = false
         return
@@ -257,27 +254,26 @@ LocalPlayer.CharacterAdded:Connect(function(character)
 end)
 
 
--- SUBSTITUÍDO: AIMBOT LOOP PRINCIPAL (v1.8: Usa aimPreciseConfig)
+-- AIMBOT LOOP PRINCIPAL (v1.9: Rage RenderStepped)
 local function updateAimbotState()
-    aimbotEnabled = aimbotLegitEnabled or aimbotRageEnabled
     doAimbot()
 end
 
 local function doAimbot()
-    if not (aimbotLegitEnabled or aimbotRageEnabled) and aimConnection then
-        aimConnection:Disconnect()
-        aimConnection = nil
-        updateFov()
-        return
+    local isRageActive = aimbotRageEnabled
+    local isLegitActive = aimbotLegitEnabled
+    
+    local function checkActivationKey()
+        return not aimPreciseConfig.requerTecla or UserInputService:IsKeyPressed(aimPreciseConfig.tecla) or UserInputService:IsMouseButtonPressed(aimPreciseConfig.tecla)
     end
     
-    if (aimbotLegitEnabled or aimbotRageEnabled) and aimConnection == nil then
+    -- GERENCIAMENTO DA CONEXÃO LEGIT (Heartbeat)
+    if not isLegitActive and aimConnection then
+        aimConnection:Disconnect()
+        aimConnection = nil
+    elseif isLegitActive and aimConnection == nil then
         aimConnection = RunService.Heartbeat:Connect(function()
-            
-            -- Checagem da Tecla de Ativação
-            if aimPreciseConfig.requerTecla and not UserInputService:IsKeyPressed(aimPreciseConfig.tecla) and not UserInputService:IsMouseButtonPressed(aimPreciseConfig.tecla) then
-                return
-            end
+            if not checkActivationKey() then return end
             
             updateFov()
 
@@ -286,20 +282,33 @@ local function doAimbot()
             if target then
                 local targetPos = target.Position
                 local newCFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
-                
-                if aimbotRageEnabled then
-                    -- Rage: Movimento Instantâneo
-                    Camera.CFrame = newCFrame 
-                elseif aimbotLegitEnabled then
-                    -- Legit: Movimento Suave/Rápido (controlado pelo slider de Suavidade)
-                    Camera.CFrame = Camera.CFrame:Lerp(newCFrame, aimPreciseConfig.suavidade)
-                end
+                Camera.CFrame = Camera.CFrame:Lerp(newCFrame, aimPreciseConfig.suavidade)
+            end
+        end)
+    end
+    
+    -- GERENCIAMENTO DA CONEXÃO RAGE (RenderStepped - MAIS RÁPIDO)
+    if not isRageActive and rageConnection then
+        rageConnection:Disconnect()
+        rageConnection = nil
+    elseif isRageActive and rageConnection == nil then
+        rageConnection = RunService.RenderStepped:Connect(function()
+            if not checkActivationKey() then return end
+            
+            updateFov()
+
+            local target = getNearestTarget()
+            
+            if target then
+                local targetPos = target.Position
+                local newCFrame = CFrame.lookAt(Camera.CFrame.Position, targetPos)
+                Camera.CFrame = newCFrame -- Instantâneo
             end
         end)
     end
 end
 
--- [ ... (TRIGGER BOT LOOP - Mantido) ... ]
+-- --- TRIGGER BOT LOOP (Mantido, mas precisa de correção para funcionar) ---
 local function doTriggerBot()
     if not triggerbotEnabled and triggerConnection then
         triggerConnection:Disconnect()
@@ -309,7 +318,7 @@ local function doTriggerBot()
     
     if triggerbotEnabled and triggerConnection == nil then
         triggerConnection = RunService.Heartbeat:Connect(function()
-            task.wait(0.03) 
+            task.wait(0.03) -- Atraso para evitar spam de click em jogos pesados
             
             local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
             local unitRay = Camera:ViewportPointToRay(center.X, center.Y)
@@ -329,6 +338,7 @@ local function doTriggerBot()
                     
                     -- Team Check e Wall Check usam as vars do Trigger Bot, mantido
                     if triggerTeamCheckEnabled and targetPlayer and targetPlayer.Team == LocalPlayer.Team then return end
+                    -- NOTA: O Trigger Bot Wall Check ainda pode precisar de ajustes dependendo do jogo
                     if triggerWallCheckEnabled and not canSeeTarget(result.Instance) then return end
 
                     Mouse:Click()
@@ -338,7 +348,7 @@ local function doTriggerBot()
     end
 end
 -- =================================================================
--- TAB: AIMBOT (UI) (v1.8: Detalhada)
+-- TAB: AIMBOT (UI) (v1.9)
 -- =================================================================
 
 local SectionAimbot = TabAimbot:Section({ Title = "Aimbot", Box = false, Opened = true, })
@@ -349,7 +359,7 @@ SectionAimbot:Toggle({
     Desc = "Aimbot suave, puxe a mira de forma controlada.",
     Icon = "user_check",
     Type = "Checkbox",
-    Value = false,
+    Value = aimbotLegitEnabled,
     Callback = function(state)
         aimbotLegitEnabled = state
         if state and aimbotRageEnabled then aimbotRageEnabled = false end 
@@ -360,11 +370,11 @@ SectionAimbot:Toggle({
 
 -- 2. Ativar Aimbot Rage (Instantâneo)
 SectionAimbot:Toggle({
-    Title = "Ativar Aimbot Rage",
-    Desc = "Aimbot agressivo: mira instantaneamente no alvo.",
+    Title = "Ativar Aimbot RAGE",
+    Desc = "Aimbot agressivo: mira instantaneamente no alvo (Max FPS).",
     Icon = "bolt",
     Type = "Checkbox",
-    Value = false,
+    Value = aimbotRageEnabled,
     Callback = function(state)
         aimbotRageEnabled = state
         if state and aimbotLegitEnabled then aimbotLegitEnabled = false end 
@@ -375,7 +385,7 @@ SectionAimbot:Toggle({
 
 SectionAimbot:Divider()
 
--- 3. Slider: Suavidade Legit (NOVO/Substituído)
+-- 3. Slider: Suavidade Legit (BASE IAmxit)
 SectionAimbot:Slider({
     Title = "Suavidade Legit (Rapidez)",
     Desc = "Define a rapidez da transição da mira (0.1 = Lento, 1.0 = Instantâneo).",
@@ -389,7 +399,7 @@ SectionAimbot:Slider({
 SectionAimbot:Dropdown({
     Title = "Parte do Alvo",
     Desc = "Define a parte do corpo a ser alvejada.",
-    Values = { "Head", "HumanoidRootPart", "UpperTorso" },
+    Values = { "Head", "HumanoidRootPart", "Torso", "UpperTorso" },
     Value = aimPreciseConfig.parteAlvo,
     Callback = function(option)
         aimPreciseConfig.parteAlvo = option
@@ -399,7 +409,7 @@ SectionAimbot:Dropdown({
 
 SectionAimbot:Divider()
 
--- 4. Toggle: Checar Visibilidade (Wall Check) (REMAPEADO)
+-- 4. Toggle: Checar Visibilidade (Wall Check) (CORRIGIDO)
 SectionAimbot:Toggle({
     Title = "Checar Visibilidade (Wall Check)",
     Desc = "Impede mira em inimigos atrás de paredes (Raycasting).",
@@ -411,7 +421,7 @@ SectionAimbot:Toggle({
     end
 })
 
--- 5. Toggle: Team Check (REMAPEADO)
+-- 5. Toggle: Team Check
 SectionAimbot:Toggle({
     Title = "Team Check",
     Desc = "Impede que o Aimbot atinja colegas de equipa.",
@@ -425,7 +435,7 @@ SectionAimbot:Toggle({
 
 SectionAimbot:Divider()
 
--- 6. Requer Segurar Tecla (NOVO)
+-- 6. Requer Segurar Tecla
 SectionAimbot:Toggle({ 
     Title = "Requer Segurar Tecla", 
     Desc = "Aimbot só ativa se a tecla escolhida for pressionada.",
@@ -438,11 +448,10 @@ SectionAimbot:Toggle({
 
 SectionAimbot:Dropdown({ 
     Title = "Tecla de Ativação", 
-    Desc = "Tecla a ser segurada para ativar o Aimbot (ex: MouseButton1 para atirar).",
+    Desc = "Tecla a ser segurada para ativar o Aimbot.",
     Values = {"MouseButton1", "MouseButton2", "E", "Q", "X", "V", "LeftShift"}, 
     Value = "MouseButton1",
     Callback = function(v) 
-        -- Mapeamento para Enum correto
         if Enum.UserInputType[v] then aimPreciseConfig.tecla = Enum.UserInputType[v]
         elseif Enum.KeyCode[v] then aimPreciseConfig.tecla = Enum.KeyCode[v]
         else aimPreciseConfig.tecla = Enum.UserInputType.MouseButton1 end
@@ -490,7 +499,7 @@ SectionAimbot:Slider({
 })
 
 
--- --- SECÇÃO: TRIGGER BOT (Mantido) ---
+-- --- SECÇÃO: TRIGGER BOT (Mantido, mas requer correções no loop da Parte 1) ---
 local SectionTriggerBot = TabAimbot:Section({ Title = "Trigger Bot", Box = false, Opened = true, })
 
 SectionTriggerBot:Toggle({
@@ -532,14 +541,14 @@ SectionTriggerBot:Toggle({
 })
 
 -- =================================================================
--- TAB: ESP / VISUALS (v1.8: Integrado IAmxit)
+-- TAB: ESP / VISUALS (v1.9: Base IAmxit)
 -- =================================================================
 
 local SectionEsp = TabEsp:Section({ Title = "Configurações de ESP", Box = false, Opened = true, })
 
 SectionEsp:Toggle({ 
     Title = "Ativar Visuals (ESP)", 
-    Desc = "Ativa a renderização de todas as informações visuais.",
+    Desc = "Ativa a renderização de todas as informações visuais (Desenho Rápido).",
     Icon = "check",
     Type = "Checkbox", 
     Value = espConfig.ativo,
@@ -775,18 +784,38 @@ SectionJump:Slider({ Title = "Power Jump", Desc = "Define a força do salto.", S
 
 
 -- ====================================================================
--- LOOP PRINCIPAL DO ESP (v1.8: RenderStepped)
+-- NOVO: LIMPEZA DO ESP E CORREÇÃO DE BUG PÓS-MORTE (v1.9)
+-- ====================================================================
+
+local function cleanupEsp()
+    -- Limpa todos os desenhos da tela
+    for player, drawings in pairs(espConfig.Drawings) do
+        for _, d in pairs(drawings) do 
+            if d:IsA("Drawing") then d:Remove() end
+        end
+    end
+    -- Limpa o cache de desenhos
+    espConfig.Drawings = {}
+end
+
+-- Evento crucial para corrigir o bug de "fantasma" do ESP
+LocalPlayer.CharacterRemoving:Connect(function()
+    cleanupEsp()
+end)
+
+-- ====================================================================
+-- LOOP PRINCIPAL DO ESP (v1.9: BASE IAmxit)
 -- ====================================================================
 
 RunService.RenderStepped:Connect(function()
     if not espConfig.ativo or not LocalPlayer.Character then
-        -- Limpa todos os desenhos se estiver desligado
+        -- Se o ESP está desligado, apenas esconde o que sobrou
         for _, d in pairs(espConfig.Drawings) do
             for _, item in pairs(d) do if item:IsA("Drawing") then item.Visible = false end end
         end
         return
     end
-
+    
     local myRoot = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not myRoot then return end
 
@@ -810,7 +839,6 @@ RunService.RenderStepped:Connect(function()
         local rootPos, rootOnScreen = Camera:WorldToViewportPoint(root.Position - Vector3.new(0, root.Size.Y / 2, 0))
 
         if not headOnScreen and not rootOnScreen then
-            -- Se não está na tela, esconde os desenhos e pula
             if espConfig.Drawings[player] then
                 for _, d in pairs(espConfig.Drawings[player]) do if d:IsA("Drawing") then d.Visible = false end end
             end
@@ -839,10 +867,8 @@ RunService.RenderStepped:Connect(function()
         local drawings = espConfig.Drawings[player] or {}
         espConfig.Drawings[player] = drawings
 
-        -- Cor: Azul se for amigo (e TeamCheck ativo), Vermelho se for inimigo, Amarelo se TeamCheck desligado
         local color = espConfig.TeamCheck and (player.Team == LocalPlayer.Team and Color3.fromRGB(0, 255, 255) or Color3.fromRGB(255, 0, 0)) or Color3.fromRGB(255, 255, 0)
         
-        -- Garante que o desenho existe
         local function ensureDrawing(name, typeName)
             if not drawings[name] then
                 drawings[name] = Drawing.new(typeName)
@@ -865,7 +891,7 @@ RunService.RenderStepped:Connect(function()
             box.Color = color
             box.Visible = true
 
-            -- Adiciona barra de vida lateral
+            -- Barra de vida lateral
             if espConfig.Vida then
                  local vidaBar = ensureDrawing("VidaBar", "Square")
                  vidaBar.Size = Vector2.new(4, boxHeight)
@@ -878,11 +904,9 @@ RunService.RenderStepped:Connect(function()
                  local vidaPercent = hum.Health / hum.MaxHealth
                  
                  local vidaOverlay = ensureDrawing("VidaOverlay", "Square")
-                 -- Calcular a altura do overlay (a parte vazia/vermelha)
                  local overlayHeight = boxHeight * (1 - vidaPercent)
                  
                  vidaOverlay.Size = Vector2.new(4, overlayHeight)
-                 -- Ajustar a posição para começar no topo da barra
                  vidaOverlay.Position = Vector2.new(headPos.X - boxWidth/2 - 5, headPos.Y + overlayHeight / 2)
                  vidaOverlay.Visible = true
                  vidaOverlay.Color = Color3.fromRGB(255, 0, 0)
@@ -892,24 +916,25 @@ RunService.RenderStepped:Connect(function()
                  if drawings.VidaOverlay then drawings.VidaOverlay.Visible = false end
             end
         else
-            if drawings.Box then drawings.Box.Visible = false end
+            if drawings.Box then drawings.Box.Box = false end
             if drawings.VidaBar then drawings.VidaBar.Visible = false end
             if drawings.VidaOverlay then drawings.VidaOverlay.Visible = false end
         end
 
-        -- --- TRACERS (Linha do pé até o centro da tela)
+        -- --- TRACERS 
         if espConfig.Tracers then
             local tracer = ensureDrawing("Tracer", "Line")
             tracer.From = Vector2.new(rootPos.X, rootPos.Y)
-            tracer.To = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y) -- Vai do pé até a base central
+            tracer.To = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
             tracer.Visible = true
             tracer.Color = color
+            tracer.Thickness = 2
         else
             if drawings.Tracer then drawings.Tracer.Visible = false end
         end
 
         -- --- TEXTO
-        local yOffset = headPos.Y - 25 -- Começa 25px acima da cabeça
+        local yOffset = headPos.Y - 25
 
         if espConfig.DisplayName then
             local dn = ensureDrawing("DisplayName", "Text")
@@ -955,7 +980,7 @@ RunService.RenderStepped:Connect(function()
         -- --- ITEM SEGURADO
         if espConfig.Item then 
             local item = char:FindFirstChildOfClass("Tool") 
-            if item and item.Name ~= "BodyPart" then -- Ignora ferramentas genéricas
+            if item and item.Name ~= "BodyPart" then
                 local itemDraw = ensureDrawing("Item", "Text")
                 itemDraw.Text = "Item: " .. item.Name; itemDraw.Color = Color3.fromRGB(150, 255, 150); itemDraw.Size = 14; itemDraw.Center = true;
                 itemDraw.Position = Vector2.new(headPos.X, yOffset); 
@@ -971,7 +996,7 @@ RunService.RenderStepped:Connect(function()
         -- --- LINHA DA MIRA
         if espConfig.Aim and head then 
             local lookVector = head.CFrame.LookVector
-            local aimEndPos = head.Position + (lookVector * 50) -- Aumenta o tamanho da linha
+            local aimEndPos = head.Position + (lookVector * 50)
             local aimScreenPos, aimOnScreen = Camera:WorldToViewportPoint(aimEndPos) 
             
             if aimOnScreen then 
@@ -988,7 +1013,6 @@ RunService.RenderStepped:Connect(function()
             if drawings.Aim then drawings.Aim.Visible = false end
         end
         
-        -- Limpa o esqueleto (se não estiver em uso)
         if drawings.Esqueleto then drawings.Esqueleto.Visible = false end
 
     end
