@@ -1,5 +1,5 @@
 -- =================================================================
--- Nando Hub | v14.0 | Final Delta Fix (Part 1/3)
+-- Nando Hub | v15.0 | Clean UI & Full Fix (Part 1/3)
 -- =================================================================
 
 local Players = game:GetService("Players")
@@ -10,7 +10,7 @@ local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- [[ 1. SISTEMA DE EXECUÇÕES (CONTADOR) ]]
+-- [[ 1. CONTADOR DE EXECUÇÕES ]]
 local execFile = "NandoHub_Execs.txt"
 local execCount = 1
 pcall(function()
@@ -23,12 +23,16 @@ end)
 
 -- [[ 2. CONFIGURAÇÕES ]]
 getgenv().Config = {
-    Aim = { Rage = false, Legit = false, Part = "Head", Speed = 0.5, WallCheck = true, TeamCheck = true, Key = Enum.UserInputType.MouseButton2, FOV = { Enabled = false, Radius = 100 } },
+    Aim = { 
+        Rage = false, Legit = false, Part = "Head", Speed = 0.5, 
+        WallCheck = true, TeamCheck = true, Key = Enum.UserInputType.MouseButton2, 
+        FOV = { Enabled = false, Radius = 100 } 
+    },
     ESP = { Enabled = false, Box = false, Tracer = false, Name = false, HP = false, TeamCheck = true, Cache = {} },
     Player = { Fly = false, FlySpeed = 50, FlyDir = 0, NoClip = false, Speed = 16, Jump = 50 }
 }
 
--- [[ 3. CARREGAR UI (SAFE MODE) ]]
+-- [[ 3. UI LOAD (WINDUI) ]]
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
 local Window = WindUI:CreateWindow({ Title = "Nando Hub", Author = "nandoxx._.", Size = UDim2.fromOffset(550, 400), Theme = "Dark" })
 
@@ -36,71 +40,82 @@ local TabPlayer = Window:Tab({ Title = "Player", Icon = "user" })
 local TabAimbot = Window:Tab({ Title = "Combate", Icon = "crosshair" })
 local TabEsp = Window:Tab({ Title = "Visuals", Icon = "eye" })
 
--- [[ 4. TAGS (AQUI ESTÁ A TAG DE EXECUÇÃO) ]]
-Window:Tag({ Title = "Delta Mobile", Icon = "phone", Color = Color3.fromRGB(48, 255, 106) })
+-- Tags
+Window:Tag({ Title = "Delta Mobile", Icon = "phone", Color = Color3.fromRGB(0, 255, 100) })
 Window:Tag({ Title = "Execuções: " .. execCount, Icon = "hash", Color = Color3.fromRGB(255, 170, 0) })
 
--- [[ 5. STATUS COLORIDO (MANUAL COLORS) ]]
-local SectStats = TabPlayer:Section({ Title = "Info" })
-local StatsTxt = SectStats:Paragraph({ Title = LocalPlayer.DisplayName, Desc = "Carregando...", Image = "rbxassetid://10723415903" })
+-- [[ 4. STATUS COLORIDO ]]
+local SectStats = TabPlayer:Section({ Title = "Status" })
+local StatsTxt = SectStats:Paragraph({ Title = LocalPlayer.DisplayName, Desc = "A carregar...", Image = "rbxassetid://10723415903" })
 
 task.spawn(function()
     pcall(function() StatsTxt:SetImage(Players:GetUserThumbnailAsync(LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)) end)
     while task.wait(1) do
         local ping = 0; pcall(function() ping = math.floor(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue()) end)
         local fps = math.floor(workspace:GetRealPhysicsFPS())
-        
-        -- Cores Hex Manuais (Evita erro no Delta)
         local fC = fps > 45 and "#00ff00" or "#ff0000"
         StatsTxt:SetDesc(string.format("FPS: <font color='%s'>%d</font> | Ping: %d ms", fC, fps, ping))
     end
 end)
+
+-- [[ 5. ORGANIZAÇÃO DA UI (SECÇÕES AGRUPADAS) ]]
+
+-- === ABA PLAYER ===
+local MoveSect = TabPlayer:Section({ Title = "Movimentação" }) -- Uma única secção para tudo
+MoveSect:Toggle({ Title = "Fly (Voo)", Callback = function(v) 
+    getgenv().Config.Player.Fly = v
+    if getgenv().FlyUI then getgenv().FlyUI.Enabled = v end 
+    if LocalPlayer.Character then LocalPlayer.Character.Humanoid.PlatformStand = v end
+end })
+MoveSect:Toggle({ Title = "NoClip", Callback = function(v) getgenv().Config.Player.NoClip = v end })
+MoveSect:Slider({ Title = "Velocidade Voo", Value = {Min=16, Max=200, Default=50}, Callback = function(v) getgenv().Config.Player.FlySpeed = v end })
+
+local SpeedSect = TabPlayer:Section({ Title = "Velocidade & Pulo" })
+SpeedSect:Slider({ Title = "WalkSpeed", Value = {Min=16, Max=200, Default=16}, Callback = function(v) getgenv().Config.Player.Speed = v end })
+SpeedSect:Slider({ Title = "JumpPower", Value = {Min=50, Max=300, Default=50}, Callback = function(v) getgenv().Config.Player.Jump = v end })
+
+-- === ABA AIMBOT ===
+local AimMain = TabAimbot:Section({ Title = "Principal" })
+AimMain:Toggle({ Title = "RAGE (Hard Lock)", Callback = function(v) getgenv().Config.Aim.Rage = v; if v then getgenv().Config.Aim.Legit = false end end })
+AimMain:Toggle({ Title = "Legit (Suave)", Callback = function(v) getgenv().Config.Aim.Legit = v; if v then getgenv().Config.Aim.Rage = false end end })
+AimMain:Dropdown({ Title = "Alvo", Values = {"Head", "HumanoidRootPart"}, Value="Head", Callback = function(v) getgenv().Config.Aim.Part = v end })
+
+local AimConfig = TabAimbot:Section({ Title = "Configurações" }) -- Aqui estão os botões que faltavam
+AimConfig:Toggle({ Title = "Team Check", Value = true, Callback = function(v) getgenv().Config.Aim.TeamCheck = v end })
+AimConfig:Toggle({ Title = "Wall Check", Value = true, Callback = function(v) getgenv().Config.Aim.WallCheck = v end })
+AimConfig:Toggle({ Title = "Mostrar FOV", Callback = function(v) getgenv().Config.Aim.FOV.Enabled = v end })
+AimConfig:Slider({ Title = "Raio do FOV", Value = {Min=50, Max=600, Default=100}, Callback = function(v) getgenv().Config.Aim.FOV.Radius = v end })
+AimConfig:Slider({ Title = "Suavidade (Legit)", Value = {Min=0.1, Max=1, Default=0.5}, Step=0.1, Callback = function(v) getgenv().Config.Aim.Speed = v end })
+
+-- === ABA ESP ===
+local EspMain = TabEsp:Section({ Title = "Visuals" })
+EspMain:Toggle({ Title = "Ativar ESP", Callback = function(v) getgenv().Config.ESP.Enabled = v end })
+EspMain:Toggle({ Title = "Team Check", Value = true, Callback = function(v) getgenv().Config.ESP.TeamCheck = v end })
+
+local EspElem = TabEsp:Section({ Title = "Elementos" })
+EspElem:Toggle({ Title = "Box (Caixa)", Callback = function(v) getgenv().Config.ESP.Box = v end })
+EspElem:Toggle({ Title = "Tracer (Linha)", Callback = function(v) getgenv().Config.ESP.Tracer = v end })
+EspElem:Toggle({ Title = "Nomes", Callback = function(v) getgenv().Config.ESP.Name = v end })
+EspElem:Toggle({ Title = "Vida (HP)", Callback = function(v) getgenv().Config.ESP.HP = v end })
 -- =================================================================
--- Nando Hub | v14.0 | Part 2/3 (Fly & Aimbot)
+-- Nando Hub | v15.0 | Part 2/3 (Core Engines)
 -- =================================================================
 
--- [[ UI FLY MOBILE (CORRIGIDA) ]]
+-- [[ UI FLY MOBILE ]]
 if game.CoreGui:FindFirstChild("NandoFlyUI") then game.CoreGui.NandoFlyUI:Destroy() end
 getgenv().FlyUI = Instance.new("ScreenGui", game.CoreGui); getgenv().FlyUI.Name = "NandoFlyUI"; getgenv().FlyUI.Enabled = false
 
 local function mkBtn(txt, pos, dir)
     local b = Instance.new("TextButton", getgenv().FlyUI)
     b.Size = UDim2.fromOffset(60,60); b.Position = pos; b.Text = txt
-    -- CORES MANUAIS AQUI:
-    b.BackgroundColor3 = Color3.fromRGB(30,30,30)
-    b.TextColor3 = Color3.new(1, 1, 1) -- Branco manual
-    b.Font = Enum.Font.GothamBold; b.TextSize = 25; b.BackgroundTransparency = 0.3
-    
-    local uic = Instance.new("UICorner", b); uic.CornerRadius = UDim.new(0,15)
-    local uis = Instance.new("UIStroke", b); uis.Color = Color3.fromRGB(170,0,255); uis.Thickness = 2
-    
+    b.BackgroundColor3 = Color3.fromRGB(30,30,30); b.TextColor3 = Color3.new(1,1,1); b.Font = Enum.Font.GothamBold; b.TextSize = 25; b.BackgroundTransparency = 0.3
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0,15); Instance.new("UIStroke", b).Color = Color3.fromRGB(170,0,255); uisThickness = 2
     b.MouseButton1Down:Connect(function() getgenv().Config.Player.FlyDir = dir end)
     b.MouseButton1Up:Connect(function() getgenv().Config.Player.FlyDir = 0 end)
 end
 mkBtn("⬆", UDim2.new(0.85,0,0.5,0), 1); mkBtn("⬇", UDim2.new(0.85,0,0.65,0), -1)
 
--- [[ FÍSICA LOOP ]]
-RunService.Stepped:Connect(function()
-    pcall(function()
-        if getgenv().Config.Player.NoClip and LocalPlayer.Character then
-            for _, v in pairs(LocalPlayer.Character:GetDescendants()) do if v:IsA("BasePart") then v.CanCollide = false end end
-        end
-        if getgenv().Config.Player.Fly and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            local root = LocalPlayer.Character.HumanoidRootPart
-            root.Velocity = Vector3.zero
-            local move = LocalPlayer.Character.Humanoid.MoveDirection * getgenv().Config.Player.FlySpeed
-            local up = Vector3.new(0, getgenv().Config.Player.FlyDir * (getgenv().Config.Player.FlySpeed*0.8), 0)
-            root.CFrame = root.CFrame + (move * 0.03) + (up * 0.03)
-        end
-        -- Speed/Jump
-        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
-            if getgenv().Config.Player.Speed ~= 16 then LocalPlayer.Character.Humanoid.WalkSpeed = getgenv().Config.Player.Speed end
-            if getgenv().Config.Player.Jump ~= 50 then LocalPlayer.Character.Humanoid.JumpPower = getgenv().Config.Player.Jump end
-        end
-    end)
-end)
-
--- [[ AIMBOT ENGINE (SAFE) ]]
+-- [[ AIMBOT ENGINE ]]
 local Circle = Drawing.new("Circle"); Circle.Thickness = 2; Circle.NumSides = 64; Circle.Filled = false; Circle.Visible = false; Circle.ZIndex = 999; Circle.Color = Color3.new(1,1,1)
 
 local function isVisible(part)
@@ -115,10 +130,15 @@ local function getTarget()
     local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+            
+            -- TEAM CHECK FIX
             if getgenv().Config.Aim.TeamCheck and p.Team == LocalPlayer.Team then continue end
+            
             local part = p.Character:FindFirstChild(getgenv().Config.Aim.Part) or p.Character:FindFirstChild("HumanoidRootPart")
             if part then
+                -- WALL CHECK FIX
                 if getgenv().Config.Aim.WallCheck and not isVisible(part) then continue end
+                
                 local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
                 if onScreen then
                     local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
@@ -130,31 +150,71 @@ local function getTarget()
     return target
 end
 
-RunService:BindToRenderStep("NandoLockFinal", 300, function()
-    Circle.Visible = getgenv().Config.Aim.FOV.Enabled; Circle.Radius = getgenv().Config.Aim.FOV.Radius; Circle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+-- RAGE HARD LOCK (Prioridade Extrema)
+RunService:BindToRenderStep("NandoAimLock", 301, function()
+    Circle.Visible = getgenv().Config.Aim.FOV.Enabled
+    Circle.Radius = getgenv().Config.Aim.FOV.Radius
+    Circle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+    
     if not (getgenv().Config.Aim.Rage or getgenv().Config.Aim.Legit) then return end
     if not UserInputService:IsMouseButtonPressed(getgenv().Config.Aim.Key) then return end
+    
     local t = getTarget()
     if t then
-        if getgenv().Config.Aim.Rage then Camera.CFrame = CFrame.new(Camera.CFrame.Position, t.Position)
-        else Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, t.Position), getgenv().Config.Aim.Speed) end
+        if getgenv().Config.Aim.Rage then
+            -- INSTANTÂNEO
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, t.Position)
+        else
+            -- SUAVE
+            local targetCF = CFrame.new(Camera.CFrame.Position, t.Position)
+            Camera.CFrame = Camera.CFrame:Lerp(targetCF, getgenv().Config.Aim.Speed)
+        end
     end
 end)
+
+-- [[ FÍSICA LOOP ]]
+RunService.Stepped:Connect(function()
+    pcall(function()
+        if getgenv().Config.Player.NoClip and LocalPlayer.Character then
+            for _, v in pairs(LocalPlayer.Character:GetDescendants()) do if v:IsA("BasePart") then v.CanCollide = false end end
+        end
+        if getgenv().Config.Player.Fly and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            local root = LocalPlayer.Character.HumanoidRootPart
+            root.Velocity = Vector3.zero
+            local move = LocalPlayer.Character.Humanoid.MoveDirection * getgenv().Config.Player.FlySpeed
+            local up = Vector3.new(0, getgenv().Config.Player.FlyDir * (getgenv().Config.Player.FlySpeed*0.8), 0)
+            root.CFrame = root.CFrame + (move * 0.03) + (up * 0.03)
+        end
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+            if getgenv().Config.Player.Speed ~= 16 then LocalPlayer.Character.Humanoid.WalkSpeed = getgenv().Config.Player.Speed end
+            if getgenv().Config.Player.Jump ~= 50 then LocalPlayer.Character.Humanoid.JumpPower = getgenv().Config.Player.Jump end
+        end
+    end)
+end)
 -- =================================================================
--- Nando Hub | v14.0 | Part 3/3 (ESP & Controls)
+-- Nando Hub | v15.0 | Part 3/3 (ESP Logic)
 -- =================================================================
 
-local function clearESP() for _, list in pairs(getgenv().Config.ESP.Cache) do for _, d in pairs(list) do d:Remove() end end; getgenv().Config.ESP.Cache = {} end
+local function clearESP()
+    for _, list in pairs(getgenv().Config.ESP.Cache) do for _, d in pairs(list) do d:Remove() end end
+    getgenv().Config.ESP.Cache = {}
+end
+
 local function newDraw(t, p) local d = Drawing.new(t); for k,v in pairs(p) do d[k]=v end return d end
 
 RunService.RenderStepped:Connect(function()
     if not getgenv().Config.ESP.Enabled then clearESP(); return end
+    
     for _, p in ipairs(Players:GetPlayers()) do
         pcall(function()
             if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
-                if getgenv().Config.ESP.TeamCheck and p.Team == LocalPlayer.Team then 
-                    if getgenv().Config.ESP.Cache[p] then for _, d in pairs(getgenv().Config.ESP.Cache[p]) do d.Visible = false end end; return 
+                
+                -- Team Check
+                if getgenv().Config.ESP.TeamCheck and p.Team == LocalPlayer.Team then
+                    if getgenv().Config.ESP.Cache[p] then for _, d in pairs(getgenv().Config.ESP.Cache[p]) do d.Visible = false end end
+                    return 
                 end
+
                 if not getgenv().Config.ESP.Cache[p] then
                     getgenv().Config.ESP.Cache[p] = {
                         Box = newDraw("Square", {Thickness = 1.5, Color = Color3.new(1,0,0), Filled = false}),
@@ -163,43 +223,37 @@ RunService.RenderStepped:Connect(function()
                         HP = newDraw("Text", {Size = 12, Center = true, Outline = true, Color = Color3.new(0,1,0)})
                     }
                 end
+
                 local c = getgenv().Config.ESP.Cache[p]
                 local root = p.Character.HumanoidRootPart
+                local head = p.Character:FindFirstChild("Head") or root
                 local vec, onScreen = Camera:WorldToViewportPoint(root.Position)
+
                 if onScreen then
-                    local head = p.Character:FindFirstChild("Head") or root
                     local headPos = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
                     local legPos = Camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
-                    local h = math.abs(headPos.Y - legPos.Y); local w = h / 1.8
+                    local h = math.abs(headPos.Y - legPos.Y)
+                    local w = h / 1.8
 
                     if getgenv().Config.ESP.Box then c.Box.Visible = true; c.Box.Size = Vector2.new(w, h); c.Box.Position = Vector2.new(vec.X - w/2, vec.Y - h/2) else c.Box.Visible = false end
                     if getgenv().Config.ESP.Tracer then c.Tracer.Visible = true; c.Tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y); c.Tracer.To = Vector2.new(vec.X, vec.Y + h/2) else c.Tracer.Visible = false end
                     if getgenv().Config.ESP.Name then c.Name.Visible = true; c.Name.Text = p.DisplayName; c.Name.Position = Vector2.new(vec.X, vec.Y - h/2 - 16) else c.Name.Visible = false end
-                    if getgenv().Config.ESP.HP then c.HP.Visible = true; c.HP.Text = math.floor(p.Character.Humanoid.Health).."%"; c.HP.Position = Vector2.new(vec.X, vec.Y + h/2 + 2); c.HP.Color = Color3.fromHSV(p.Character.Humanoid.Health/100*0.3,1,1) else c.HP.Visible = false end
-                else for _, d in pairs(c) do d.Visible = false end end
-            else if getgenv().Config.ESP.Cache[p] then for _, d in pairs(getgenv().Config.ESP.Cache[p]) do d.Visible = false end end end
+                    if getgenv().Config.ESP.HP then 
+                        c.HP.Visible = true; c.HP.Text = math.floor(p.Character.Humanoid.Health).."%"
+                        c.HP.Position = Vector2.new(vec.X, vec.Y + h/2 + 2)
+                        c.HP.Color = Color3.fromHSV(p.Character.Humanoid.Health/100*0.3,1,1) 
+                    else c.HP.Visible = false end
+                else
+                    for _, d in pairs(c) do d.Visible = false end
+                end
+            else
+                if getgenv().Config.ESP.Cache[p] then for _, d in pairs(getgenv().Config.ESP.Cache[p]) do d.Visible = false end end
+            end
         end)
     end
 end)
+
 LocalPlayer.CharacterRemoving:Connect(clearESP)
 
--- [[ CONTROLES DA INTERFACE ]]
-TabPlayer:Section({ Title = "Movimento" }):Toggle({ Title = "Fly (Voo)", Callback = function(v) getgenv().Config.Player.Fly = v; if getgenv().FlyUI then getgenv().FlyUI.Enabled = v end end })
-TabPlayer:Section({ Title = "Movimento" }):Slider({ Title = "Velocidade Fly", Value = {Min=16, Max=200, Default=50}, Callback = function(v) getgenv().Config.Player.FlySpeed = v end })
-TabPlayer:Section({ Title = "Movimento" }):Toggle({ Title = "NoClip", Callback = function(v) getgenv().Config.Player.NoClip = v end })
-TabPlayer:Section({ Title = "Movimento" }):Slider({ Title = "Speed (Andar)", Value = {Min=16, Max=200, Default=16}, Callback = function(v) getgenv().Config.Player.Speed = v end })
-TabPlayer:Section({ Title = "Movimento" }):Slider({ Title = "Jump (Pulo)", Value = {Min=50, Max=300, Default=50}, Callback = function(v) getgenv().Config.Player.Jump = v end })
+WindUI:Notify({ Title = "Nando Hub", Content = "Interface organizada e botões corrigidos!", Duration = 5 })
 
-TabAimbot:Section({ Title = "Modo" }):Toggle({ Title = "RAGE (Hard Lock)", Callback = function(v) getgenv().Config.Aim.Rage = v; if v then getgenv().Config.Aim.Legit = false end end })
-TabAimbot:Section({ Title = "Modo" }):Toggle({ Title = "Legit (Suave)", Callback = function(v) getgenv().Config.Aim.Legit = v; if v then getgenv().Config.Aim.Rage = false end end })
-TabAimbot:Section({ Title = "Config" }):Slider({ Title = "Suavidade Legit", Value = {Min=0.1, Max=1, Default=0.5}, Step=0.1, Callback = function(v) getgenv().Config.Aim.Speed = v end })
-TabAimbot:Section({ Title = "Config" }):Toggle({ Title = "Mostrar FOV", Callback = function(v) getgenv().Config.Aim.FOV.Enabled = v end })
-TabAimbot:Section({ Title = "Config" }):Slider({ Title = "Raio FOV", Value = {Min=50, Max=600, Default=100}, Callback = function(v) getgenv().Config.Aim.FOV.Radius = v end })
-
-TabEsp:Section({ Title = "Opções" }):Toggle({ Title = "Ativar ESP", Callback = function(v) getgenv().Config.ESP.Enabled = v end })
-TabEsp:Section({ Title = "Opções" }):Toggle({ Title = "Box", Callback = function(v) getgenv().Config.ESP.Box = v end })
-TabEsp:Section({ Title = "Opções" }):Toggle({ Title = "Tracer", Callback = function(v) getgenv().Config.ESP.Tracer = v end })
-TabEsp:Section({ Title = "Opções" }):Toggle({ Title = "Nome", Callback = function(v) getgenv().Config.ESP.Name = v end })
-TabEsp:Section({ Title = "Opções" }):Toggle({ Title = "Vida", Callback = function(v) getgenv().Config.ESP.HP = v end })
-
-WindUI:Notify({ Title = "Sucesso", Content = "Script carregado sem erros!", Duration = 4 })
