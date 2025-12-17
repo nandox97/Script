@@ -1,5 +1,5 @@
 -- =================================================================
--- Nando Hub | v3.0 | Fixed & Optimized
+-- Nando Hub | v3.0 | Fixed & Optimized (Part 1/3)
 -- =================================================================
 
 -- 1. PREPARAÇÃO E SERVIÇOS
@@ -13,10 +13,10 @@ local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 
--- Verifica suporte a Drawing (pra evitar erros no ESP)
+-- Verifica suporte a Drawing
 if not Drawing then
     game.StarterGui:SetCore("SendNotification", {
-        Title = "Erro", Text = "Seu executor não suporta Drawing API (ESP).", Duration = 5
+        Title = "Erro Crítico", Text = "Seu executor não suporta Drawing API (ESP).", Duration = 10
     })
     return
 end
@@ -57,16 +57,14 @@ local espConfig = {
     drawings = {}
 }
 
--- Player
+-- Player / Fly / Noclip
 local flyState = { enabled = false, speed = 50, direction = 0 }
 local noclipEnabled = false
 local speedHack = { enabled = false, value = 16 }
 local jumpHack = { enabled = false, value = 50 }
-
--- FOV
 local fovConfig = { enabled = false, size = 100, transparency = 1, circle = nil }
 
--- 4. FUNÇÕES LÓGICAS (DEFINIDAS ANTES DA UI PARA EVITAR ERROS)
+-- 4. FUNÇÕES LÓGICAS (DEFINIDAS ANTES DA UI)
 
 -- --- Atualizar Círculo FOV ---
 local function updateFov()
@@ -128,14 +126,13 @@ local function getBestTarget()
     end
     return bestTarget
 end
+
 -- --- MOTOR DO AIMBOT (LÓGICA RAGE CORRIGIDA) ---
 local function aimbotEngine()
     updateFov()
     
-    -- Se nenhum aimbot estiver ativo, não faz nada
     if not aimbotState.legit and not aimbotState.rage then return end
 
-    -- Verifica tecla
     if aimbotState.useKey and not UserInputService:IsMouseButtonPressed(aimbotState.keybind) then return end
 
     local target = getBestTarget()
@@ -143,10 +140,8 @@ local function aimbotEngine()
         local targetPos = target.Position
         
         if aimbotState.rage then
-            -- MODO RAGE: Trava absoluta (Sobrescreve a câmera)
             Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPos)
         elseif aimbotState.legit then
-            -- MODO LEGIT: Suavização
             local currentCF = Camera.CFrame
             local targetCF = CFrame.new(currentCF.Position, targetPos)
             Camera.CFrame = currentCF:Lerp(targetCF, aimbotState.smoothing)
@@ -154,12 +149,12 @@ local function aimbotEngine()
     end
 end
 
--- Conecta o Aimbot com prioridade máxima para o Rage funcionar
+-- Conecta o Aimbot com prioridade máxima
 RunService:BindToRenderStep("NandoHubAimbot", Enum.RenderPriority.Camera.Value + 1, aimbotEngine)
 
 -- --- MOTOR DO TRIGGER BOT ---
 task.spawn(function()
-    while task.wait() do -- Loop rápido
+    while task.wait() do 
         if triggerState.enabled then
             local mouseTarget = Mouse.Target
             if mouseTarget and mouseTarget.Parent then
@@ -170,12 +165,10 @@ task.spawn(function()
                     if hum and hum.Health > 0 then
                         local isTeammate = (triggerState.teamCheck and player.Team == LocalPlayer.Team)
                         if not isTeammate then
-                            -- Verificação de parede simples pro trigger
                             local canShoot = true
                             if triggerState.wallCheck then
                                 canShoot = isVisible(mouseTarget)
                             end
-                            
                             if canShoot then
                                 mouse1click()
                                 task.wait(triggerState.delay)
@@ -187,6 +180,10 @@ task.spawn(function()
         end
     end
 end)
+-- =================================================================
+-- Nando Hub | v3.0 | Part 2/3 (ESP Engine & Player)
+-- =================================================================
+
 -- --- MOTOR DO ESP (RenderStepped) ---
 local function clearEsp()
     for _, list in pairs(espConfig.drawings) do
@@ -272,6 +269,11 @@ RunService.RenderStepped:Connect(function()
                 -- Remove se não for válido
                 if espConfig.drawings[player] then
                     for _, x in pairs(espConfig.drawings[player]) do x:Remove() end
+                    espConfig.drawings[player] = nil
+                end
+            end
+        end
+    end
     -- Limpeza de quem saiu
     for pl, _ in pairs(espConfig.drawings) do
         if not pl.Parent then
@@ -321,10 +323,8 @@ end)
 UserInputService.InputEnded:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.Space or input.KeyCode == Enum.KeyCode.LeftControl then flyState.direction = 0 end
 end)
-
-
 -- =================================================================
--- 5. CONSTRUÇÃO DA INTERFACE GRÁFICA (UI)
+-- Nando Hub | v3.0 | Part 3/3 (UI Construction)
 -- =================================================================
 
 local Window = WindUI:CreateWindow({
@@ -381,6 +381,7 @@ SectAim:Divider()
 
 SectAim:Toggle({ Title = "Wall Check", Value = true, Callback = function(v) aimbotState.wallCheck = v end })
 SectAim:Toggle({ Title = "Team Check", Value = true, Callback = function(v) aimbotState.teamCheck = v end })
+
 local SectFov = TabAimbot:Section({ Title = "FOV" })
 SectFov:Toggle({ Title = "Mostrar FOV", Callback = function(v) fovConfig.enabled = v end })
 SectFov:Slider({ Title = "Raio FOV", Value = {Min=10, Max=500, Default=100}, Callback = function(v) fovConfig.size = v end })
@@ -414,6 +415,7 @@ SectMods:Toggle({ Title = "Speed Hack", Callback = function(v) speedHack.enabled
 SectMods:Slider({ Title = "Valor Speed", Value = {Min=16, Max=300, Default=16}, Callback = function(v) speedHack.value = v end })
 SectMods:Toggle({ Title = "Jump Hack", Callback = function(v) jumpHack.enabled = v; if not v and LocalPlayer.Character then LocalPlayer.Character.Humanoid.JumpPower = 50 end end })
 SectMods:Slider({ Title = "Valor Jump", Value = {Min=50, Max=300, Default=50}, Callback = function(v) jumpHack.value = v end })
+
 -- === ABA INFORMAÇÕES ===
 local SectCreds = TabInfo:Section({ Title = "Sobre" })
 SectCreds:Paragraph({ Title = "Créditos", Desc = "Criado por: nandoxx._.\nBase Aim/ESP: IAmxit\nLib: WindUI" })
