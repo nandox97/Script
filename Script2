@@ -1,66 +1,57 @@
 -- =================================================================
--- Nando Hub | v9.0 | ESP Full & Hard Lock (Part 1/4)
+-- Nando Hub | v11.0 | Anti-Crash Edition (Part 1/4)
 -- =================================================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- [[ 1. SISTEMA DE LOGS ]]
-local execFile = "NandoHub_Stats.txt"
-local execCount = 1
-pcall(function()
-    if isfile and isfile(execFile) then
-        execCount = (tonumber(readfile(execFile)) or 0) + 1
-    end
-    if writefile then writefile(execFile, tostring(execCount)) end
-end)
+-- [[ CHECK EXECUTOR ]]
+if not Drawing then
+    LocalPlayer:Kick("Erro: Teu executor não suporta Drawing API.")
+    return
+end
 
--- [[ 2. CONFIGURAÇÕES GLOBAIS ]]
+-- [[ 1. CONFIGURAÇÕES ]]
 getgenv().Config = {
     Aim = {
         Rage = false,      -- Hard Lock
-        Legit = false,     -- Smooth
+        Legit = false,     -- Suave
         Part = "Head",
-        Speed = 1,       -- 0.1 a 1
+        Speed = 0.5,
         WallCheck = true,
         TeamCheck = true,
         Key = Enum.UserInputType.MouseButton2,
         FOV = { Enabled = false, Radius = 100, Color = Color3.fromRGB(255, 255, 255) }
     },
     ESP = {
-        Enabled = false,
-        Box = false,
-        Tracer = false,    -- ADICIONADO
-        Name = false,
-        HP = false,
-        Dist = false,      -- ADICIONADO
-        TeamCheck = true,
-        Cache = {} 
+        Enabled = false, Box = false, Tracer = false, Name = false, HP = false,
+        TeamCheck = true, Cache = {} 
     },
     Player = {
         Fly = false, FlySpeed = 50, FlyDir = 0,
-        NoClip = false,
-        Speed = 16, Jump = 50
+        NoClip = false, Speed = 16, Jump = 50
     }
 }
 
--- [[ 3. CÍRCULO FOV ]]
+-- [[ 2. CÍRCULO FOV ]]
 local Circle = Drawing.new("Circle")
 Circle.Thickness = 2
 Circle.NumSides = 64
 Circle.Filled = false
 Circle.Visible = false
+Circle.ZIndex = 999
 
--- [[ 4. FUNÇÕES DE MIRA ]]
+-- [[ 3. FUNÇÕES DE MIRA ]]
 local function isVisible(part)
     if not getgenv().Config.Aim.WallCheck then return true end
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
     params.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
-    local res = workspace:Raycast(Camera.CFrame.Position, (part.Position - Camera.CFrame.Position).Unit * 1000, params)
+    local res = Workspace:Raycast(Camera.CFrame.Position, (part.Position - Camera.CFrame.Position).Unit * 1000, params)
     return not res or (res.Instance and res.Instance:IsDescendantOf(part.Parent))
 end
 
@@ -75,7 +66,6 @@ local function getTarget()
             local part = p.Character:FindFirstChild(getgenv().Config.Aim.Part) or p.Character:FindFirstChild("HumanoidRootPart")
             if part then
                 if getgenv().Config.Aim.WallCheck and not isVisible(part) then continue end
-                
                 local pos, onScreen = Camera:WorldToViewportPoint(part.Position)
                 if onScreen then
                     local dist = (Vector2.new(pos.X, pos.Y) - center).Magnitude
@@ -90,8 +80,8 @@ local function getTarget()
     return target
 end
 
--- [[ 5. AIMBOT LOOP (PRIORIDADE 300 - HARD LOCK) ]]
-RunService:BindToRenderStep("NandoAimLock", 300, function()
+-- [[ 4. AIMBOT HARD LOCK (BIND TO RENDER STEP 300) ]]
+RunService:BindToRenderStep("NandoLockFix", 300, function()
     Circle.Visible = getgenv().Config.Aim.FOV.Enabled
     Circle.Radius = getgenv().Config.Aim.FOV.Radius
     Circle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
@@ -103,17 +93,15 @@ RunService:BindToRenderStep("NandoAimLock", 300, function()
     local t = getTarget()
     if t then
         if getgenv().Config.Aim.Rage then
-            -- HARD LOCK INSTANTÂNEO
             Camera.CFrame = CFrame.new(Camera.CFrame.Position, t.Position)
-        else
-            -- LEGIT SUAVE
+        elseif getgenv().Config.Aim.Legit then
             local targetCF = CFrame.new(Camera.CFrame.Position, t.Position)
             Camera.CFrame = Camera.CFrame:Lerp(targetCF, getgenv().Config.Aim.Speed)
         end
     end
 end)
 -- =================================================================
--- Nando Hub | v9.0 | Part 2/4 (ESP Engine Logic)
+-- Nando Hub | v11.0 | Part 2/4 (ESP Fixed)
 -- =================================================================
 
 local function clearESP()
@@ -133,21 +121,22 @@ RunService.RenderStepped:Connect(function()
     if not getgenv().Config.ESP.Enabled then clearESP(); return end
 
     for _, p in ipairs(Players:GetPlayers()) do
+        -- Verificação de segurança
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
             
-            -- Team Check
-            if getgenv().Config.ESP.TeamCheck and p.Team == LocalPlayer.Team then
+            local isAlly = (getgenv().Config.ESP.TeamCheck and p.Team == LocalPlayer.Team)
+            if isAlly then
                 if getgenv().Config.ESP.Cache[p] then for _, d in pairs(getgenv().Config.ESP.Cache[p]) do d.Visible = false end end
                 continue
             end
 
-            -- Criar Desenhos (Box, Tracer, Name, HP)
+            -- Inicializar Cache
             if not getgenv().Config.ESP.Cache[p] then
                 getgenv().Config.ESP.Cache[p] = {
-                    Box = newDraw("Square", {Thickness = 1, Color = Color3.fromRGB(255, 0, 0), Filled = false}),
-                    Tracer = newDraw("Line", {Thickness = 1, Color = Color3.fromRGB(255, 0, 0)}), -- LINHA ADICIONADA
-                    Name = newDraw("Text", {Size = 15, Center = true, Outline = true, Color = Color3.white}),
-                    HP = newDraw("Text", {Size = 13, Center = true, Outline = true, Color = Color3.fromRGB(0, 255, 0)})
+                    Box = newDraw("Square", {Thickness = 1.5, Color = Color3.fromRGB(255, 0, 0), Filled = false, ZIndex = 2}),
+                    Tracer = newDraw("Line", {Thickness = 1, Color = Color3.fromRGB(255, 0, 0), ZIndex = 1}),
+                    Name = newDraw("Text", {Size = 14, Center = true, Outline = true, Color = Color3.white, ZIndex = 3}),
+                    HP = newDraw("Text", {Size = 12, Center = true, Outline = true, Color = Color3.fromRGB(0, 255, 0), ZIndex = 3})
                 }
             end
 
@@ -157,43 +146,53 @@ RunService.RenderStepped:Connect(function()
             
             local vec, onScreen = Camera:WorldToViewportPoint(root.Position)
 
+            -- [[ CORREÇÃO DO ERRO ]]
             if onScreen then
-                -- Matemática da Box (Baseada no IAmxit)
-                local headY = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 1.5, 0)).Y
-                local legY = Camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0)).Y
-                local h = math.abs(headY - legY)
-                local w = h / 2
+                -- Usamos pcall para evitar que cálculos matemáticos quebrem o script
+                local success, err = pcall(function()
+                    local headPos = Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 0.5, 0))
+                    local legPos = Camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0))
+                    
+                    -- Proteção contra valores Nil ou NaN
+                    if not headPos or not legPos then return end
 
-                -- [[ BOX ]]
-                if getgenv().Config.ESP.Box then
-                    cache.Box.Visible = true
-                    cache.Box.Size = Vector2.new(w, h)
-                    cache.Box.Position = Vector2.new(vec.X - w/2, vec.Y - h/2)
-                else cache.Box.Visible = false end
+                    local h = math.abs(headPos.Y - legPos.Y)
+                    local w = h / 1.8
 
-                -- [[ TRACER (LINHA) ]]
-                if getgenv().Config.ESP.Tracer then
-                    cache.Tracer.Visible = true
-                    cache.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y) -- Base da tela
-                    cache.Tracer.To = Vector2.new(vec.X, vec.Y + h/2) -- Pés do inimigo
-                else cache.Tracer.Visible = false end
+                    -- Box
+                    if getgenv().Config.ESP.Box then
+                        cache.Box.Visible = true
+                        cache.Box.Size = Vector2.new(w, h)
+                        cache.Box.Position = Vector2.new(vec.X - w/2, vec.Y - h/2)
+                    else cache.Box.Visible = false end
 
-                -- [[ NOME + DISTÂNCIA ]]
-                if getgenv().Config.ESP.Name then
-                    cache.Name.Visible = true
-                    local distTxt = getgenv().Config.ESP.Dist and " ["..math.floor(vec.Z).."m]" or ""
-                    cache.Name.Text = p.DisplayName .. distTxt
-                    cache.Name.Position = Vector2.new(vec.X, vec.Y - h/2 - 18)
-                else cache.Name.Visible = false end
+                    -- Tracer
+                    if getgenv().Config.ESP.Tracer then
+                        cache.Tracer.Visible = true
+                        cache.Tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
+                        cache.Tracer.To = Vector2.new(vec.X, vec.Y + h/2)
+                    else cache.Tracer.Visible = false end
 
-                -- [[ VIDA (HP) ]]
-                if getgenv().Config.ESP.HP then
-                    cache.HP.Visible = true
-                    cache.HP.Text = math.floor(p.Character.Humanoid.Health) .. "%"
-                    cache.HP.Position = Vector2.new(vec.X, vec.Y + h/2 + 5)
-                    cache.HP.Color = Color3.fromHSV(p.Character.Humanoid.Health/100 * 0.3, 1, 1)
-                else cache.HP.Visible = false end
+                    -- Nome
+                    if getgenv().Config.ESP.Name then
+                        cache.Name.Visible = true
+                        cache.Name.Text = p.DisplayName or p.Name
+                        cache.Name.Position = Vector2.new(vec.X, vec.Y - h/2 - 16)
+                    else cache.Name.Visible = false end
 
+                    -- HP
+                    if getgenv().Config.ESP.HP then
+                        cache.HP.Visible = true
+                        cache.HP.Text = math.floor(p.Character.Humanoid.Health) .. "%"
+                        cache.HP.Position = Vector2.new(vec.X, vec.Y + h/2 + 2)
+                        cache.HP.Color = Color3.fromHSV(p.Character.Humanoid.Health/100 * 0.3, 1, 1)
+                    else cache.HP.Visible = false end
+                end)
+
+                if not success then
+                    -- Se der erro no cálculo, esconde tudo para não bugar a tela
+                    for _, d in pairs(cache) do d.Visible = false end
+                end
             else
                 for _, d in pairs(cache) do d.Visible = false end
             end
@@ -207,10 +206,11 @@ end)
 
 LocalPlayer.CharacterRemoving:Connect(clearESP)
 -- =================================================================
--- Nando Hub | v9.0 | Part 3/4 (Fly & Physics)
+-- Nando Hub | v11.0 | Part 3/4 (Controls)
 -- =================================================================
 
--- [[ UI FLUTUANTE DE VOO (MOBILE) ]]
+-- [[ UI DE VOO MOBILE ]]
+if game.CoreGui:FindFirstChild("NandoFlyUI") then game.CoreGui.NandoFlyUI:Destroy() end
 local FlyGui = Instance.new("ScreenGui", game:GetService("CoreGui"))
 FlyGui.Name = "NandoFlyUI"
 FlyGui.Enabled = false
@@ -220,25 +220,23 @@ local function createFlyBtn(text, pos, dir)
     btn.Size = UDim2.fromOffset(60, 60)
     btn.Position = pos
     btn.Text = text
-    btn.TextSize = 18
+    btn.TextSize = 25
     btn.Font = Enum.Font.GothamBold
-    btn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
     btn.TextColor3 = Color3.white
+    btn.BackgroundTransparency = 0.3
     
-    local uic = Instance.new("UICorner", btn); uic.CornerRadius = UDim.new(0, 12)
-    local uis = Instance.new("UIStroke", btn); uis.Color = Color3.fromRGB(138, 43, 226); uis.Thickness = 2
+    local uic = Instance.new("UICorner", btn); uic.CornerRadius = UDim.new(0, 15)
+    local uis = Instance.new("UIStroke", btn); uis.Color = Color3.fromRGB(170, 0, 255); uis.Thickness = 2
     
     btn.MouseButton1Down:Connect(function() getgenv().Config.Player.FlyDir = dir end)
     btn.MouseButton1Up:Connect(function() getgenv().Config.Player.FlyDir = 0 end)
-    -- Suporte Touch
-    btn.TouchLongPress:Connect(function() getgenv().Config.Player.FlyDir = dir end)
-    btn.TouchTap:Connect(function() getgenv().Config.Player.FlyDir = 0 end)
 end
 
-createFlyBtn("⬆", UDim2.new(0.85, 0, 0.55, 0), 1)
-createFlyBtn("⬇", UDim2.new(0.85, 0, 0.68, 0), -1)
+createFlyBtn("⬆", UDim2.new(0.85, 0, 0.50, 0), 1)
+createFlyBtn("⬇", UDim2.new(0.85, 0, 0.65, 0), -1)
 
--- [[ FÍSICA LOOP ]]
+-- [[ FÍSICA ]]
 RunService.Stepped:Connect(function()
     if getgenv().Config.Player.NoClip and LocalPlayer.Character then
         for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
@@ -257,17 +255,18 @@ RunService.Stepped:Connect(function()
     end
 end)
 
+-- Loop de Stats (Speed/Jump)
 task.spawn(function()
     while task.wait(0.5) do
         pcall(function()
             local hum = LocalPlayer.Character.Humanoid
-            hum.WalkSpeed = getgenv().Config.Player.Speed
-            hum.JumpPower = getgenv().Config.Player.Jump
+            if getgenv().Config.Player.Speed ~= 16 then hum.WalkSpeed = getgenv().Config.Player.Speed end
+            if getgenv().Config.Player.Jump ~= 50 then hum.JumpPower = getgenv().Config.Player.Jump end
         end)
     end
 end)
 -- =================================================================
--- Nando Hub | v9.0 | Part 4/4 (UI & Status)
+-- Nando Hub | v11.0 | Part 4/4 (UI & Status)
 -- =================================================================
 
 local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
@@ -277,11 +276,8 @@ local Window = WindUI:CreateWindow({
 
 local TabPlayer = Window:Tab({ Title = "Player", Icon = "user" })
 local TabAimbot = Window:Tab({ Title = "Aimbot", Icon = "crosshair" })
-local TabEsp = Window:Tab({ Title = "Visuals", Icon = "eye" })
+local TabEsp = Window:Tab({ Title = "Esp", Icon = "eye" })
 local TabInfo = Window:Tab({ Title = "Info", Icon = "info" })
-
-Window:Tag({ Title = "Mobile Delta", Icon = "phone", Color = Color3.fromHex("#30ff6a") })
-Window:Tag({ Title = "Execuções: " .. execCount, Icon = "hash", Color = Color3.fromHex("#ffaa00") })
 
 -- [[ STATUS ]]
 local SectStats = TabPlayer:Section({ Title = "Status" })
@@ -314,9 +310,10 @@ SectPlr:Slider({ Title = "Pulo (Jump)", Value = {Min=50, Max=300, Default=50}, C
 local SectAim = TabAimbot:Section({ Title = "Combate" })
 SectAim:Toggle({ Title = "RAGE Aimbot (Hard Lock)", Callback = function(v) getgenv().Config.Aim.Rage = v; if v then getgenv().Config.Aim.Legit = false end end })
 SectAim:Toggle({ Title = "Legit Aimbot (Suave)", Callback = function(v) getgenv().Config.Aim.Legit = v; if v then getgenv().Config.Aim.Rage = false end end })
-SectAim:Slider({ Title = "Velocidade Legit", Value = {Min=0.1, Max=1, Default=0.5}, Step=0.1, Callback = function(v) getgenv().Config.Aim.Speed = v end })
+SectAim:Slider({ Title = "Velocidade Legit", Desc = "1 = Rápido | 0.1 = Lento", Value = {Min=0.1, Max=1, Default=0.5}, Step=0.1, Callback = function(v) getgenv().Config.Aim.Speed = v end })
 SectAim:Dropdown({ Title = "Alvo", Values = {"Head", "HumanoidRootPart"}, Value="Head", Callback = function(v) getgenv().Config.Aim.Part = v end })
 SectAim:Toggle({ Title = "Wall Check", Value = true, Callback = function(v) getgenv().Config.Aim.WallCheck = v end })
+SectAim:Toggle({ Title = "Team Check", Value = true, Callback = function(v) getgenv().Config.Aim.TeamCheck = v end })
 SectAim:Divider()
 SectAim:Toggle({ Title = "Mostrar FOV", Callback = function(v) getgenv().Config.Aim.FOV.Enabled = v end })
 SectAim:Slider({ Title = "Raio FOV", Value = {Min=50, Max=600, Default=100}, Callback = function(v) getgenv().Config.Aim.FOV.Radius = v end })
@@ -326,10 +323,10 @@ local SectEsp = TabEsp:Section({ Title = "Visuais" })
 SectEsp:Toggle({ Title = "Ativar ESP Mestre", Callback = function(v) getgenv().Config.ESP.Enabled = v end })
 SectEsp:Toggle({ Title = "Team Check", Value=true, Callback = function(v) getgenv().Config.ESP.TeamCheck = v end })
 SectEsp:Toggle({ Title = "Caixas (Box)", Callback = function(v) getgenv().Config.ESP.Box = v end })
-SectEsp:Toggle({ Title = "Tracers (Linhas)", Callback = function(v) getgenv().Config.ESP.Tracer = v end }) -- NOVO BOTÃO
-SectEsp:Toggle({ Title = "Nomes & Dist", Callback = function(v) getgenv().Config.ESP.Name = v; getgenv().Config.ESP.Dist = v end })
+SectEsp:Toggle({ Title = "Tracers (Linhas)", Callback = function(v) getgenv().Config.ESP.Tracer = v end })
+SectEsp:Toggle({ Title = "Nomes", Callback = function(v) getgenv().Config.ESP.Name = v end })
 SectEsp:Toggle({ Title = "Vida (HP)", Callback = function(v) getgenv().Config.ESP.HP = v end })
 
-TabInfo:Section({ Title = "Sobre" }):Paragraph({ Title = "Nando Hub", Desc = "v9.0 Final\nESP Completo & Hard Lock." })
+TabInfo:Section({ Title = "Sobre" }):Paragraph({ Title = "Nando Hub", Desc = "v11.0 Anti-Crash\nCorreção do Erro de Linha" })
 
-WindUI:Notify({ Title = "Sucesso", Content = "ESP Completo e Hard Lock Carregados!", Duration = 5 })
+WindUI:Notify({ Title = "Pronto!", Content = "Anti-Crash ativado.", Duration = 4 })
