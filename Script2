@@ -1,52 +1,43 @@
 -- =================================================================
--- Nando Hub | v2.1 | Full Integration (IAmxit + Player Features)
+-- Nando Hub | v3.0 | Fixed & Optimized
 -- =================================================================
 
--- 1. SISTEMA DE EXECUÇÕES
-local EXEC_FILENAME = "NandoHub_Executions.txt"
-local currentExecs = 0
-pcall(function()
-    if isfile and isfile(EXEC_FILENAME) and readfile then
-        local savedData = readfile(EXEC_FILENAME)
-        if savedData then currentExecs = tonumber(savedData) or 0 end
-    end
-end)
-currentExecs = currentExecs + 1
-pcall(function() if writefile then writefile(EXEC_FILENAME, tostring(currentExecs)) end end)
-
--- 2. CARREGAR LIB
-local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
-
--- 3. SERVIÇOS E VARIÁVEIS
+-- 1. PREPARAÇÃO E SERVIÇOS
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 local Mouse = LocalPlayer:GetMouse()
 
--- Configurações Globais
-local flyState = 0 
-local fovEnabled = false
-local fovSize = 100
-local fovTransparency = 1
-local fovCircle = nil
+-- Verifica suporte a Drawing (pra evitar erros no ESP)
+if not Drawing then
+    game.StarterGui:SetCore("SendNotification", {
+        Title = "Erro", Text = "Seu executor não suporta Drawing API (ESP).", Duration = 5
+    })
+    return
+end
 
--- === CONFIGURAÇÃO DO AIMBOT (Baseada no IAmxit) ===
+-- 2. CARREGAR LIB (WindUI)
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+
+-- 3. VARIÁVEIS DE ESTADO (CONFIGURAÇÕES)
+-- Aimbot
 local aimbotState = {
     legit = false,
     rage = false,
     wallCheck = true,
     teamCheck = true,
-    aliveCheck = true,
     part = "Head",
     smoothing = 0.5,
     keybind = Enum.UserInputType.MouseButton2,
     useKey = true
 }
 
--- === CONFIGURAÇÃO DO TRIGGER BOT ===
+-- Trigger
 local triggerState = {
     enabled = false,
     wallCheck = true,
@@ -54,7 +45,7 @@ local triggerState = {
     delay = 0.05
 }
 
--- === CONFIGURAÇÃO DO ESP (Baseada no IAmxit) ===
+-- ESP
 local espConfig = {
     enabled = false,
     box = false,
@@ -66,55 +57,70 @@ local espConfig = {
     drawings = {}
 }
 
--- Conexões de Loop
-local aimConnection = nil
-local triggerConnection = nil
+-- Player
+local flyState = { enabled = false, speed = 50, direction = 0 }
+local noclipEnabled = false
+local speedHack = { enabled = false, value = 16 }
+local jumpHack = { enabled = false, value = 50 }
 
--- --- FUNÇÕES AUXILIARES (VISIBILIDADE / RAYCAST) ---
+-- FOV
+local fovConfig = { enabled = false, size = 100, transparency = 1, circle = nil }
 
+-- 4. FUNÇÕES LÓGICAS (DEFINIDAS ANTES DA UI PARA EVITAR ERROS)
+
+-- --- Atualizar Círculo FOV ---
+local function updateFov()
+    if not fovConfig.circle then
+        fovConfig.circle = Drawing.new("Circle")
+        fovConfig.circle.Thickness = 2
+        fovConfig.circle.NumSides = 64
+        fovConfig.circle.Filled = false
+    end
+    fovConfig.circle.Visible = fovConfig.enabled
+    fovConfig.circle.Radius = fovConfig.size
+    fovConfig.circle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+    fovConfig.circle.Color = Color3.fromRGB(255, 255, 255)
+    fovConfig.circle.Transparency = fovConfig.transparency
+end
+
+-- --- Checagem de Visibilidade (WallCheck) ---
 local function isVisible(targetPart)
     if not aimbotState.wallCheck then return true end
     local origin = Camera.CFrame.Position
     local direction = targetPart.Position - origin
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Blacklist
-    params.FilterDescendantsInstances = {LocalPlayer.Character, Camera} 
+    params.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
     local result = Workspace:Raycast(origin, direction, params)
     return not result or (result.Instance and result.Instance:IsDescendantOf(targetPart.Parent))
 end
 
-local function getTargetPart(char)
-    local part = char:FindFirstChild(aimbotState.part)
-    if not part then
-        part = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso") or char:FindFirstChild("Head")
-    end
-    return part
-end
-
+-- --- Buscar Melhor Alvo ---
 local function getBestTarget()
     local bestTarget = nil
-    local shortestDist = fovSize
+    local shortestDist = fovConfig.size
     local center = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
             local char = player.Character
             local hum = char and char:FindFirstChild("Humanoid")
+            local root = char and char:FindFirstChild("HumanoidRootPart")
             
-            if char and hum and hum.Health > 0 then
+            if char and hum and root and hum.Health > 0 then
                 if aimbotState.teamCheck and player.Team == LocalPlayer.Team then continue end
                 
-                local part = getTargetPart(char)
-                if part then
-                    if aimbotState.wallCheck and not isVisible(part) then continue end
+                local targetPart = char:FindFirstChild(aimbotState.part) or root
+                
+                -- Verificação preliminar de WallCheck
+                if aimbotState.wallCheck and not isVisible(targetPart) then continue end
 
-                    local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
-                    if onScreen then
-                        local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
-                        if dist < shortestDist then
-                            shortestDist = dist
-                            bestTarget = part
-                        end
+                local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+                if onScreen then
+                    local dist = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                    if dist < shortestDist then
+                        shortestDist = dist
+                        bestTarget = targetPart
                     end
                 end
             end
@@ -122,77 +128,205 @@ local function getBestTarget()
     end
     return bestTarget
 end
+-- --- MOTOR DO AIMBOT (LÓGICA RAGE CORRIGIDA) ---
+local function aimbotEngine()
+    updateFov()
+    
+    -- Se nenhum aimbot estiver ativo, não faz nada
+    if not aimbotState.legit and not aimbotState.rage then return end
 
--- --- FOV CIRCLE ---
-local function updateFovCircle()
-    if not fovCircle then
-        fovCircle = Drawing.new("Circle")
-        fovCircle.Thickness = 2; fovCircle.NumSides = 64; fovCircle.Filled = false
-    end
-    fovCircle.Visible = fovEnabled
-    fovCircle.Radius = fovSize
-    fovCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-    fovCircle.Color = Color3.fromRGB(255, 255, 255)
-    fovCircle.Transparency = fovTransparency
-end
+    -- Verifica tecla
+    if aimbotState.useKey and not UserInputService:IsMouseButtonPressed(aimbotState.keybind) then return end
 
--- --- LOOP DO AIMBOT ---
-local function startAimbot()
-    if aimConnection then aimConnection:Disconnect() end
-    local loopEvent = aimbotState.rage and RunService.RenderStepped or RunService.Heartbeat
-
-    aimConnection = loopEvent:Connect(function()
-        updateFovCircle()
-        if aimbotState.useKey and not UserInputService:IsMouseButtonPressed(aimbotState.keybind) then return end
-        if not (aimbotState.legit or aimbotState.rage) then return end
-
-        local target = getBestTarget()
-        if target then
-            local targetPos = target.Position
-            if aimbotState.rage then
-                Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPos)
-            else
-                local currentCF = Camera.CFrame
-                local targetCF = CFrame.new(currentCF.Position, targetPos)
-                Camera.CFrame = currentCF:Lerp(targetCF, aimbotState.smoothing)
-            end
+    local target = getBestTarget()
+    if target then
+        local targetPos = target.Position
+        
+        if aimbotState.rage then
+            -- MODO RAGE: Trava absoluta (Sobrescreve a câmera)
+            Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPos)
+        elseif aimbotState.legit then
+            -- MODO LEGIT: Suavização
+            local currentCF = Camera.CFrame
+            local targetCF = CFrame.new(currentCF.Position, targetPos)
+            Camera.CFrame = currentCF:Lerp(targetCF, aimbotState.smoothing)
         end
-    end)
+    end
 end
 
--- --- LOOP DO TRIGGER BOT ---
-local function startTrigger()
-    if triggerConnection then triggerConnection:Disconnect() end
-    triggerConnection = RunService.Heartbeat:Connect(function()
-        if not triggerState.enabled then return end
-        local mouseTarget = Mouse.Target
-        if mouseTarget and mouseTarget.Parent then
-            local player = Players:GetPlayerFromCharacter(mouseTarget.Parent)
-            if player and player ~= LocalPlayer then
-                local char = player.Character
-                local hum = char:FindFirstChild("Humanoid")
-                if hum and hum.Health > 0 then
-                    if triggerState.teamCheck and player.Team == LocalPlayer.Team then return end
-                    if triggerState.wallCheck then
-                        local origin = Camera.CFrame.Position
-                        local dir = (mouseTarget.Position - origin).Unit * 1000
-                        local params = RaycastParams.new()
-                        params.FilterDescendantsInstances = {LocalPlayer.Character}
-                        local ray = Workspace:Raycast(origin, dir, params)
-                        if ray and not ray.Instance:IsDescendantOf(char) then return end
+-- Conecta o Aimbot com prioridade máxima para o Rage funcionar
+RunService:BindToRenderStep("NandoHubAimbot", Enum.RenderPriority.Camera.Value + 1, aimbotEngine)
+
+-- --- MOTOR DO TRIGGER BOT ---
+task.spawn(function()
+    while task.wait() do -- Loop rápido
+        if triggerState.enabled then
+            local mouseTarget = Mouse.Target
+            if mouseTarget and mouseTarget.Parent then
+                local player = Players:GetPlayerFromCharacter(mouseTarget.Parent)
+                if player and player ~= LocalPlayer then
+                    local char = player.Character
+                    local hum = char and char:FindFirstChild("Humanoid")
+                    if hum and hum.Health > 0 then
+                        local isTeammate = (triggerState.teamCheck and player.Team == LocalPlayer.Team)
+                        if not isTeammate then
+                            -- Verificação de parede simples pro trigger
+                            local canShoot = true
+                            if triggerState.wallCheck then
+                                canShoot = isVisible(mouseTarget)
+                            end
+                            
+                            if canShoot then
+                                mouse1click()
+                                task.wait(triggerState.delay)
+                            end
+                        end
                     end
-                    mouse1click()
-                    task.wait(triggerState.delay)
                 end
             end
         end
-    end)
+    end
+end)
+-- --- MOTOR DO ESP (RenderStepped) ---
+local function clearEsp()
+    for _, list in pairs(espConfig.drawings) do
+        for _, drawing in pairs(list) do drawing:Remove() end
+    end
+    espConfig.drawings = {}
 end
+
+RunService.RenderStepped:Connect(function()
+    if not espConfig.enabled then 
+        if next(espConfig.drawings) then clearEsp() end
+        return 
+    end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local char = player.Character
+            local hum = char and char:FindFirstChild("Humanoid")
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            
+            -- Validação
+            local valid = char and hum and root and hum.Health > 0
+            if valid and espConfig.teamCheck and player.Team == LocalPlayer.Team then valid = false end
+
+            if valid then
+                -- Criar desenhos se não existirem
+                if not espConfig.drawings[player] then
+                    espConfig.drawings[player] = {
+                        box = Drawing.new("Square"),
+                        tracer = Drawing.new("Line"),
+                        name = Drawing.new("Text"),
+                        info = Drawing.new("Text")
+                    }
+                    -- Configurações padrão
+                    espConfig.drawings[player].box.Color = Color3.new(1,0,0); espConfig.drawings[player].box.Thickness = 1; espConfig.drawings[player].box.Filled = false
+                    espConfig.drawings[player].tracer.Color = Color3.new(1,0,0); espConfig.drawings[player].tracer.Thickness = 1
+                    espConfig.drawings[player].name.Color = Color3.new(1,1,1); espConfig.drawings[player].name.Size = 14; espConfig.drawings[player].name.Center = true; espConfig.drawings[player].name.Outline = true
+                    espConfig.drawings[player].info.Color = Color3.new(1,1,1); espConfig.drawings[player].info.Size = 12; espConfig.drawings[player].info.Center = true; espConfig.drawings[player].info.Outline = true
+                end
+
+                local d = espConfig.drawings[player]
+                local vec, onScreen = Camera:WorldToViewportPoint(root.Position)
+                local head = char:FindFirstChild("Head")
+                local topVec = head and Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 1, 0)) or vec
+
+                if onScreen then
+                    -- Box
+                    if espConfig.box then
+                        local h = math.abs(topVec.Y - vec.Y) * 1.5
+                        local w = h / 2
+                        d.box.Visible = true
+                        d.box.Size = Vector2.new(w, h)
+                        d.box.Position = Vector2.new(vec.X - w/2, vec.Y - h/2)
+                    else d.box.Visible = false end
+
+                    -- Tracer
+                    if espConfig.tracers then
+                        d.tracer.Visible = true
+                        d.tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
+                        d.tracer.To = Vector2.new(vec.X, vec.Y)
+                    else d.tracer.Visible = false end
+
+                    -- Name
+                    if espConfig.name then
+                        d.name.Visible = true
+                        d.name.Text = player.Name
+                        d.name.Position = Vector2.new(vec.X, topVec.Y - 20)
+                    else d.name.Visible = false end
+
+                    -- Info
+                    if espConfig.health or espConfig.distance then
+                        d.info.Visible = true
+                        local txt = ""
+                        if espConfig.distance then txt = txt .. math.floor((root.Position - Camera.CFrame.Position).Magnitude) .. "m\n" end
+                        if espConfig.health then txt = txt .. "[" .. math.floor(hum.Health) .. " HP]" end
+                        d.info.Text = txt
+                        d.info.Position = Vector2.new(vec.X, vec.Y + (math.abs(topVec.Y - vec.Y)/2) + 5)
+                    else d.info.Visible = false end
+                else
+                    for _, x in pairs(d) do x.Visible = false end
+                end
+            else
+                -- Remove se não for válido
+                if espConfig.drawings[player] then
+                    for _, x in pairs(espConfig.drawings[player]) do x:Remove() end
+    -- Limpeza de quem saiu
+    for pl, _ in pairs(espConfig.drawings) do
+        if not pl.Parent then
+            for _, x in pairs(espConfig.drawings[pl]) do x:Remove() end
+            espConfig.drawings[pl] = nil
+        end
+    end
+end)
+
+LocalPlayer.CharacterRemoving:Connect(clearEsp)
+
+-- --- FUNÇÕES PLAYER (FLY, NOCLIP, ETC) ---
+RunService.Stepped:Connect(function()
+    if noclipEnabled and LocalPlayer.Character then
+        for _, v in pairs(LocalPlayer.Character:GetDescendants()) do
+            if v:IsA("BasePart") and v.CanCollide then v.CanCollide = false end
+        end
+    end
+    
+    if flyState.enabled and LocalPlayer.Character then
+        local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if root then
+            root.Velocity = Vector3.new(0, 0, 0) -- Tira gravidade
+            local camCF = Camera.CFrame
+            local moveDir = LocalPlayer.Character.Humanoid.MoveDirection * flyState.speed
+            root.CFrame = root.CFrame + (moveDir * RunService.Heartbeat:Wait())
+            root.CFrame = root.CFrame + Vector3.new(0, flyState.direction * (flyState.speed/2) * RunService.Heartbeat:Wait(), 0)
+        end
+    end
+end)
+
+task.spawn(function()
+    while task.wait(0.5) do
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+        if hum then
+            if speedHack.enabled then hum.WalkSpeed = speedHack.value end
+            if jumpHack.enabled then hum.UseJumpPower = true; hum.JumpPower = jumpHack.value end
+        end
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gpe)
+    if gpe then return end
+    if input.KeyCode == Enum.KeyCode.Space then flyState.direction = 1
+    elseif input.KeyCode == Enum.KeyCode.LeftControl then flyState.direction = -1 end
+end)
+UserInputService.InputEnded:Connect(function(input)
+    if input.KeyCode == Enum.KeyCode.Space or input.KeyCode == Enum.KeyCode.LeftControl then flyState.direction = 0 end
+end)
+
+
 -- =================================================================
--- PARTE 2: UI SETUP (Aimbot, Trigger, ESP)
+-- 5. CONSTRUÇÃO DA INTERFACE GRÁFICA (UI)
 -- =================================================================
 
--- Criar Janela
 local Window = WindUI:CreateWindow({
     Title = "Nando Hub",
     Icon = "rbxassetid://10723415903",
@@ -205,11 +339,6 @@ local Window = WindUI:CreateWindow({
     HasOutline = true,
 })
 
--- Tags Iniciais
-Window:Tag({ Title = "v2.1 | Full", Icon = "check", Color = Color3.fromHex("#30ff6a") })
-Window:Tag({ Title = "Execuções: " .. currentExecs, Icon = "hash", Color = Color3.fromHex("#ffaa00") })
-WindUI:Notify({ Title = "Sucesso", Content = "Script carregado! Bem-vindo " .. LocalPlayer.Name, Duration = 5 })
-
 -- Abas
 local TabInfo = Window:Tab({ Title = "Informações", Icon = "info" })
 local TabPlayer = Window:Tab({ Title = "Player", Icon = "user" })
@@ -217,31 +346,26 @@ local TabAimbot = Window:Tab({ Title = "Aimbot", Icon = "crosshair" })
 local TabEsp = Window:Tab({ Title = "Visuals (ESP)", Icon = "eye" })
 local TabOutros = Window:Tab({ Title = "Outros", Icon = "settings" })
 
+Window:Tag({ Title = "v3.0 | Estável", Icon = "check", Color = Color3.fromHex("#30ff6a") })
+
 -- === ABA AIMBOT ===
-local SectAim = TabAimbot:Section({ Title = "Aimbot Principal", Box = false, Opened = true })
+local SectAim = TabAimbot:Section({ Title = "Aimbot Principal" })
 
 SectAim:Toggle({
     Title = "Aimbot Legit",
-    Desc = "Movimento suave e humano.",
-    Icon = "user",
-    Callback = function(v) 
-        aimbotState.legit = v; if v then aimbotState.rage = false end; startAimbot() 
-    end
+    Desc = "Movimento suave",
+    Callback = function(v) aimbotState.legit = v; if v then aimbotState.rage = false end end
 })
 
 SectAim:Toggle({
     Title = "Aimbot Rage",
-    Desc = "Trava INSTANTÂNEA (Sem suavidade).",
-    Icon = "zap",
-    Callback = function(v) 
-        aimbotState.rage = v; if v then aimbotState.legit = false end; startAimbot() 
-    end
+    Desc = "Trava INSTANTÂNEA (Violento)",
+    Callback = function(v) aimbotState.rage = v; if v then aimbotState.legit = false end end
 })
 
 SectAim:Slider({
     Title = "Suavidade (Legit)",
-    Desc = "Quanto maior, mais rápido (0.1 = Lento, 1.0 = Instantâneo).",
-    Value = { Min = 0.1, Max = 1.0, Default = 0.5 },
+    Value = {Min = 0.1, Max = 1.0, Default = 0.5},
     Step = 0.1,
     Callback = function(v) aimbotState.smoothing = v end
 })
@@ -255,249 +379,45 @@ SectAim:Dropdown({
 
 SectAim:Divider()
 
-SectAim:Toggle({ Title = "Wall Check", Value = true, Icon = "wall", Callback = function(v) aimbotState.wallCheck = v end })
-SectAim:Toggle({ Title = "Team Check", Value = true, Icon = "users", Callback = function(v) aimbotState.teamCheck = v end })
+SectAim:Toggle({ Title = "Wall Check", Value = true, Callback = function(v) aimbotState.wallCheck = v end })
+SectAim:Toggle({ Title = "Team Check", Value = true, Callback = function(v) aimbotState.teamCheck = v end })
+local SectFov = TabAimbot:Section({ Title = "FOV" })
+SectFov:Toggle({ Title = "Mostrar FOV", Callback = function(v) fovConfig.enabled = v end })
+SectFov:Slider({ Title = "Raio FOV", Value = {Min=10, Max=500, Default=100}, Callback = function(v) fovConfig.size = v end })
 
-SectAim:Dropdown({
-    Title = "Tecla de Ativação",
-    Values = {"MouseButton2", "MouseButton1", "LeftShift", "LeftControl"},
-    Value = "MouseButton2",
-    Callback = function(v) aimbotState.keybind = Enum.UserInputType[v] or Enum.KeyCode[v] end
-})
+local SectTrig = TabAimbot:Section({ Title = "TriggerBot" })
+SectTrig:Toggle({ Title = "Ativar Trigger", Callback = function(v) triggerState.enabled = v end })
+SectTrig:Toggle({ Title = "Trigger WallCheck", Value = true, Callback = function(v) triggerState.wallCheck = v end })
+SectTrig:Slider({ Title = "Trigger Delay", Value = {Min=0, Max=1, Default=0.05}, Callback = function(v) triggerState.delay = v end })
 
--- Configuração de FOV
-local SectFov = TabAimbot:Section({ Title = "Configuração FOV" })
-SectFov:Toggle({ Title = "Desenhar FOV", Callback = function(v) fovEnabled = v end })
-SectFov:Slider({ Title = "Tamanho", Value = {Min=10, Max=500, Default=100}, Callback = function(v) fovSize = v end })
 
--- === TRIGGER BOT ===
-local SectTrig = TabAimbot:Section({ Title = "Trigger Bot" })
-SectTrig:Toggle({
-    Title = "Ativar Trigger Bot",
-    Desc = "Atira automaticamente quando a mira passa no inimigo.",
-    Callback = function(v) triggerState.enabled = v; startTrigger() end
-})
-SectTrig:Toggle({ Title = "Trigger Wall Check", Value = true, Callback = function(v) triggerState.wallCheck = v end })
-SectTrig:Toggle({ Title = "Trigger Team Check", Value = true, Callback = function(v) triggerState.teamCheck = v end })
-SectTrig:Slider({ Title = "Delay de Disparo", Value = {Min=0, Max=1, Default=0.05}, Step=0.01, Callback = function(v) triggerState.delay = v end })
+-- === ABA ESP (VISUALS) ===
+local SectEsp = TabEsp:Section({ Title = "Configurações ESP" })
 
--- === ABA VISUALS (ESP) ===
-local SectEsp = TabEsp:Section({ Title = "ESP (Drawing API)", Box = false, Opened = true })
-SectEsp:Toggle({ Title = "Ativar ESP Mestre", Icon = "eye", Callback = function(v) espConfig.enabled = v end })
-SectEsp:Divider()
-SectEsp:Toggle({ Title = "Box (Caixa 2D)", Callback = function(v) espConfig.box = v end })
-SectEsp:Toggle({ Title = "Tracers (Linhas)", Callback = function(v) espConfig.tracers = v end })
-SectEsp:Toggle({ Title = "Nomes (Name)", Callback = function(v) espConfig.name = v end })
-SectEsp:Toggle({ Title = "Distância", Callback = function(v) espConfig.distance = v end })
-SectEsp:Toggle({ Title = "Vida (Health)", Callback = function(v) espConfig.health = v end })
-SectEsp:Toggle({ Title = "Team Check (ESP)", Value = true, Callback = function(v) espConfig.teamCheck = v end })
--- =================================================================
--- PARTE 3: PLAYER, CREDITS & ENGINE
--- =================================================================
+SectEsp:Toggle({ Title = "ESP Mestre (Ligar/Desligar)", Callback = function(v) espConfig.enabled = v; if not v then clearEsp() end end })
+SectEsp:Toggle({ Title = "Box 2D", Callback = function(v) espConfig.box = v end })
+SectEsp:Toggle({ Title = "Tracers", Callback = function(v) espConfig.tracers = v end })
+SectEsp:Toggle({ Title = "Nomes", Callback = function(v) espConfig.name = v end })
+SectEsp:Toggle({ Title = "Saúde & Distância", Callback = function(v) espConfig.health = v; espConfig.distance = v end })
+SectEsp:Toggle({ Title = "Team Check", Value = true, Callback = function(v) espConfig.teamCheck = v end })
 
--- === ABA INFORMAÇÕES (CRÉDITOS) ===
-local SectionCreditos = TabInfo:Section({ Title = "Creditos", Box = false, Opened = true })
-SectionCreditos:Paragraph({ Title = "Credits / Créditos", Desc = "Developed by: nandoxx._. on discord", Locked = false })
-SectionCreditos:Paragraph({ Title = "Dates / Datas", Desc = "Created: December 12, 2025\nLast Update: December 12, 2025", Locked = false })
 
--- === ABA PLAYER (INFO) ===
-local SectionPlayerInfo = TabPlayer:Section({ Title = "Informações do Player", Box = false, Opened = true })
-local playerIcon = "rbxassetid://10723415903"
-pcall(function() playerIcon = Players:GetUserThumbnailAsync(LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420) end)
+-- === ABA PLAYER ===
+local SectFly = TabPlayer:Section({ Title = "Voo (Fly)" })
 
-local StatusParagraph = SectionPlayerInfo:Paragraph({
-    Title = LocalPlayer.DisplayName .. " (@" .. LocalPlayer.Name .. ")",
-    Desc = "Calculando Ping e FPS...",
-    Image = playerIcon, 
-    ImageSize = 50,
-    Locked = false,
-})
+SectFly:Toggle({ Title = "Ativar Fly", Callback = function(v) flyState.enabled = v; if v and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then LocalPlayer.Character.Humanoid.PlatformStand = true else if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then LocalPlayer.Character.Humanoid.PlatformStand = false end end end })
+SectFly:Slider({ Title = "Velocidade Fly", Value = {Min=10, Max=300, Default=50}, Callback = function(v) flyState.speed = v end })
 
-task.spawn(function()
-    while task.wait(1) do
-        local stats = game:GetService("Stats")
-        local ping = 0
-        pcall(function() ping = math.floor(stats.Network.ServerStatsItem["Data Ping"]:GetValue()) end)
-        local fps = math.floor(Workspace:GetRealPhysicsFPS())
-        local fpsColor = fps >= 50 and "00ff00" or (fps >= 30 and "ffff00" or "ff0000")
-        local pingColor = ping < 100 and "00ff00" or (ping < 200 and "ffff00" or "ff0000")
-        StatusParagraph:SetDesc(string.format("FPS: <font color='#%s'>%d</font> | Ping: <font color='#%s'>%d ms</font>", fpsColor, fps, pingColor, ping))
-    end
-end)
+local SectMods = TabPlayer:Section({ Title = "Modificações" })
+SectMods:Toggle({ Title = "NoClip (Atravessar)", Callback = function(v) noclipEnabled = v end })
+SectMods:Toggle({ Title = "Speed Hack", Callback = function(v) speedHack.enabled = v; if not v and LocalPlayer.Character then LocalPlayer.Character.Humanoid.WalkSpeed = 16 end end })
+SectMods:Slider({ Title = "Valor Speed", Value = {Min=16, Max=300, Default=16}, Callback = function(v) speedHack.value = v end })
+SectMods:Toggle({ Title = "Jump Hack", Callback = function(v) jumpHack.enabled = v; if not v and LocalPlayer.Character then LocalPlayer.Character.Humanoid.JumpPower = 50 end end })
+SectMods:Slider({ Title = "Valor Jump", Value = {Min=50, Max=300, Default=50}, Callback = function(v) jumpHack.value = v end })
+-- === ABA INFORMAÇÕES ===
+local SectCreds = TabInfo:Section({ Title = "Sobre" })
+SectCreds:Paragraph({ Title = "Créditos", Desc = "Criado por: nandoxx._.\nBase Aim/ESP: IAmxit\nLib: WindUI" })
+SectCreds:Paragraph({ Title = "Status", Desc = "Versão 3.0 carregada com sucesso." })
 
--- === ABA PLAYER (FLY) ===
-local SectionFly = TabPlayer:Section({ Title = "Fly", Box = false, Opened = true })
-local flyEnabled = false
-local flySpeed = 50
-local bv, bg
-
-local function toggleFly(state)
-    flyEnabled = state
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    local hum = char and char:FindFirstChild("Humanoid")
-
-    if flyEnabled and root and hum then
-        bv = Instance.new("BodyVelocity", root)
-        bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-        bg = Instance.new("BodyGyro", root)
-        bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-        bg.P = 10000
-        hum.PlatformStand = true
-        
-        task.spawn(function()
-            while flyEnabled and root and bv and bg do
-                local camCF = Camera.CFrame
-                local move = hum.MoveDirection * flySpeed
-                bv.Velocity = Vector3.new(move.X, flyState * flySpeed, move.Z)
-                bg.CFrame = camCF
-                RunService.RenderStepped:Wait()
-            end
-        end)
-    else
-        if bv then bv:Destroy() end
-        if bg then bg:Destroy() end
-        if hum then hum.PlatformStand = false end
-        flyState = 0
-    end
-end
-
-SectionFly:Toggle({ Title = "Ativar Fly", Icon = "plane", Callback = toggleFly })
-SectionFly:Slider({ Title = "Velocidade", Value = {Min=10, Max=200, Default=50}, Callback = function(v) flySpeed = v end })
-
-UserInputService.InputBegan:Connect(function(input, gpe)
-    if gpe then return end
-    if input.KeyCode == Enum.KeyCode.Space then flyState = 1
-    elseif input.KeyCode == Enum.KeyCode.LeftControl then flyState = -1 end
-end)
-UserInputService.InputEnded:Connect(function(input)
-    if input.KeyCode == Enum.KeyCode.Space or input.KeyCode == Enum.KeyCode.LeftControl then flyState = 0 end
-end)
-
--- === ABA PLAYER (NOCLIP) ===
-local SectionNoClip = TabPlayer:Section({ Title = "No Clip", Box = false, Opened = true })
-local noclipEnabled = false
-local noclipConnection = nil
-
-SectionNoClip:Toggle({
-    Title = "Ativar NoClip",
-    Desc = "Atravessar paredes.",
-    Icon = "shield_off",
-    Callback = function(state)
-        noclipEnabled = state
-        if noclipEnabled then
-            noclipConnection = RunService.Stepped:Connect(function()
-                if LocalPlayer.Character then
-                    for _, v in pairs(LocalPlayer.Character:GetDescendants()) do
-                        if v:IsA("BasePart") and v.CanCollide then v.CanCollide = false end
-                    end
-                end
-            end)
-        else
-            if noclipConnection then noclipConnection:Disconnect() noclipConnection = nil end
-        end
-    end
-})
-
--- === ABA PLAYER (SPEED & JUMP) ===
-local SectionStats = TabPlayer:Section({ Title = "Status (Speed/Jump)", Box = false, Opened = true })
-local speedEnabled = false
-local speedValue = 16
-local jumpEnabled = false
-local jumpValue = 50
-
-task.spawn(function()
-    while task.wait(0.5) do
-        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
-        if hum then
-            if speedEnabled then hum.WalkSpeed = speedValue end
-            if jumpEnabled then hum.UseJumpPower = true; hum.JumpPower = jumpValue end
-        end
-    end
-end)
-
-SectionStats:Toggle({ Title = "Speed Hack", Icon = "run", Callback = function(v) speedEnabled = v; if not v and LocalPlayer.Character then LocalPlayer.Character.Humanoid.WalkSpeed = 16 end end})
-SectionStats:Slider({ Title = "Valor Speed", Value = {Min=16, Max=300, Default=16}, Callback = function(v) speedValue = v end })
-SectionStats:Divider()
-SectionStats:Toggle({ Title = "Jump Hack", Icon = "arrow_up", Callback = function(v) jumpEnabled = v; if not v and LocalPlayer.Character then LocalPlayer.Character.Humanoid.JumpPower = 50 end end})
-SectionStats:Slider({ Title = "Valor Jump", Value = {Min=50, Max=300, Default=50}, Callback = function(v) jumpValue = v end })
-
--- === ESP ENGINE (RENDER STEPPED) ===
-local function createDrawing(type, props)
-    local draw = Drawing.new(type)
-    for k, v in pairs(props or {}) do draw[k] = v end
-    return draw
-end
-
-local function removeEsp(player)
-    if espConfig.drawings[player] then
-        for _, draw in pairs(espConfig.drawings[player]) do draw:Remove() end
-        espConfig.drawings[player] = nil
-    end
-end
-
-local function clearAllEsp()
-    for _, plDrawings in pairs(espConfig.drawings) do
-        for _, draw in pairs(plDrawings) do draw:Remove() end
-    end
-    espConfig.drawings = {}
-end
-
-RunService.RenderStepped:Connect(function()
-    if not espConfig.enabled then clearAllEsp(); return end
-
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer then
-            local char = player.Character
-            local hum = char and char:FindFirstChild("Humanoid")
-            local root = char and char:FindFirstChild("HumanoidRootPart")
-            local valid = char and hum and root and hum.Health > 0
-            if valid and espConfig.teamCheck and player.Team == LocalPlayer.Team then valid = false end
-
-            if valid then
-                if not espConfig.drawings[player] then
-                    espConfig.drawings[player] = {
-                        box = createDrawing("Square", {Thickness = 1, Color = Color3.new(1,0,0), Filled = false}),
-                        tracer = createDrawing("Line", {Thickness = 1, Color = Color3.new(1,0,0)}),
-                        name = createDrawing("Text", {Size = 14, Center = true, Outline = true, Color = Color3.new(1,1,1)}),
-                        info = createDrawing("Text", {Size = 12, Center = true, Outline = true, Color = Color3.new(1,1,1)})
-                    }
-                end
-                local d = espConfig.drawings[player]
-                local vector, onScreen = Camera:WorldToViewportPoint(root.Position)
-                local headBox = char:FindFirstChild("Head")
-                local topVec = headBox and Camera:WorldToViewportPoint(headBox.Position + Vector3.new(0, 1, 0)) or vector
-
-                if onScreen then
-                    if espConfig.box then
-                        local height = math.abs(topVec.Y - vector.Y) * 1.5; local width = height / 2
-                        d.box.Visible = true; d.box.Size = Vector2.new(width, height); d.box.Position = Vector2.new(vector.X - width/2, vector.Y - height/2)
-                    else d.box.Visible = false end
-
-                    if espConfig.tracers then
-                        d.tracer.Visible = true; d.tracer.From = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y); d.tracer.To = Vector2.new(vector.X, vector.Y)
-                    else d.tracer.Visible = false end
-
-                    if espConfig.name then
-                        d.name.Visible = true; d.name.Text = player.Name; d.name.Position = Vector2.new(vector.X, topVec.Y - 20)
-                    else d.name.Visible = false end
-
-                    if espConfig.health or espConfig.distance then
-                        d.info.Visible = true; local txt = ""
-                        if espConfig.distance then txt = txt .. math.floor((root.Position - Camera.CFrame.Position).Magnitude) .. "m " end
-                        if espConfig.health then txt = txt .. "[" .. math.floor(hum.Health) .. " HP]" end
-                        d.info.Text = txt; d.info.Position = Vector2.new(vector.X, vector.Y + (math.abs(topVec.Y - vector.Y) / 2) + 5)
-                    else d.info.Visible = false end
-                else
-                    for _, draw in pairs(d) do draw.Visible = false end
-                end
-            else
-                removeEsp(player)
-            end
-        end
-    end
-    for pl, _ in pairs(espConfig.drawings) do if not pl.Parent then removeEsp(pl) end end
-end)
-
-LocalPlayer.CharacterRemoving:Connect(function() clearAllEsp() end)
+WindUI:Notify({ Title = "Pronto!", Content = "Script v3.0 Injetado.", Duration = 4 })
 Window:SelectTab(1)
