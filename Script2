@@ -1,39 +1,84 @@
--- =================================================================
--- Nando Hub | v6.0 | Full Final Integration
--- =================================================================
+--[[
+    Nando Hub | v7.0 | INTEGRAÇÃO TOTAL (IAmxit + WindUI)
+    Parte 1 de 5: Configurações e Variáveis de Estado
+]]
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
+local Mouse = LocalPlayer:GetMouse()
 
--- [[ 1. CONTADOR DE EXECUÇÕES (PERSISTÊNCIA EM FICHEIRO) ]]
+-- [[ 1. CONTADOR DE EXECUÇÕES PERSISTENTE ]]
 local execFile = "NandoHub_Logs.txt"
 local execCount = 0
 if isfile and isfile(execFile) then
-    execCount = tonumber(readfile(execFile)) or 0
+    local content = readfile(execFile)
+    execCount = tonumber(content) or 0
 end
 execCount = execCount + 1
 if writefile then writefile(execFile, tostring(execCount)) end
 
--- [[ 2. CONFIGURAÇÕES GLOBAIS ]]
-getgenv().AimbotConfig = {
-    Legit = false, Rage = false, WallCheck = true, TeamCheck = true,
-    Part = "Head", Smoothness = 0.5, Key = Enum.UserInputType.MouseButton2,
-    FOV = { Enabled = false, Size = 100, Transparency = 1, Color = Color3.new(1,1,1) }
+-- [[ 2. VARIÁVEIS DE ESTADO (TUDO DO IAmxit) ]]
+getgenv().NandoConfig = {
+    -- Combate
+    Aimbot = {
+        Enabled = false,
+        Legit = false,
+        Rage = false,
+        WallCheck = true,
+        TeamCheck = true,
+        Part = "Head",
+        Smoothness = 0.5,
+        Key = Enum.UserInputType.MouseButton2,
+        UseKey = true,
+        FOV = { Enabled = false, Size = 100, Transparency = 1, Color = Color3.new(1,1,1) }
+    },
+    Trigger = {
+        Enabled = false,
+        WallCheck = true,
+        TeamCheck = true,
+        Delay = 0.05
+    },
+    -- Visuals
+    ESP = {
+        Enabled = false,
+        Box = false,
+        Names = false,
+        Dist = false,
+        Health = false,
+        TeamCheck = true,
+        Drawings = {}
+    },
+    -- Player
+    Movement = {
+        NoClip = false,
+        Speed = 16,
+        Jump = 50,
+        Fly = false,
+        FlySpeed = 50,
+        FlyDir = 0
+    }
 }
-getgenv().ESPConfig = { Enabled = false, Box = false, Names = false, Dist = false, Health = false, Team = true, Drawings = {} }
-getgenv().PlayerMod = { NoClip = false, Speed = 16, Jump = 50, Fly = false, FlySpeed = 50, FlyDir = 0 }
-getgenv().TriggerConfig = { Enabled = false, WallCheck = true, Delay = 0.05 }
 
--- [[ 3. CÍRCULO FOV (DRAWING API) ]]
+-- [[ 3. INICIALIZAÇÃO DO FOV (DRAWING API) ]]
 local FOVCircle = Drawing.new("Circle")
-FOVCircle.Thickness = 2; FOVCircle.NumSides = 64; FOVCircle.Filled = false; FOVCircle.Visible = false
+FOVCircle.Thickness = 2
+FOVCircle.NumSides = 64
+FOVCircle.Filled = false
+FOVCircle.Visible = false
 
--- [[ 4. LÓGICA DE VISIBILIDADE ]]
+-- Carregar WindUI (Necessário para a próxima parte)
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+--[[
+    Nando Hub | v7.0 
+    Parte 2 de 5: Lógica de Mira e Trigger Bot
+]]
+
+-- Função de Visibilidade (Raycast do teu amigo)
 local function isVisible(part)
-    if not getgenv().AimbotConfig.WallCheck then return true end
+    if not getgenv().NandoConfig.Aimbot.WallCheck then return true end
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Blacklist
     params.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
@@ -41,22 +86,29 @@ local function isVisible(part)
     return not result or (result.Instance and result.Instance:IsDescendantOf(part.Parent))
 end
 
--- [[ 5. BUSCA DE ALVO ]]
-local function getTarget()
-    local target, dist = nil, getgenv().AimbotConfig.FOV.Size
+-- Busca de Alvo (IAmxit Style - Puxa pelo FOV)
+local function getBestTarget()
+    local target = nil
+    local shortestDist = getgenv().NandoConfig.Aimbot.FOV.Size
     local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
+            -- Team Check
             local sameTeam = false
-            pcall(function() if getgenv().AimbotConfig.TeamCheck and p.Team == LocalPlayer.Team then sameTeam = true end end)
+            pcall(function() if getgenv().NandoConfig.Aimbot.TeamCheck and p.Team == LocalPlayer.Team then sameTeam = true end end)
             if sameTeam then continue end
-            local part = p.Character:FindFirstChild(getgenv().AimbotConfig.Part) or p.Character:FindFirstChild("HumanoidRootPart")
+            
+            local part = p.Character:FindFirstChild(getgenv().NandoConfig.Aimbot.Part) or p.Character:FindFirstChild("HumanoidRootPart")
             if part then
-                if getgenv().AimbotConfig.WallCheck and not isVisible(part) then continue end
+                if getgenv().NandoConfig.Aimbot.WallCheck and not isVisible(part) then continue end
                 local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
                 if onScreen then
-                    local mag = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
-                    if mag < dist then dist = mag; target = part end
+                    local magnitude = (Vector2.new(screenPos.X, screenPos.Y) - center).Magnitude
+                    if magnitude <= getgenv().NandoConfig.Aimbot.FOV.Size and magnitude < shortestDist then
+                        shortestDist = magnitude
+                        target = part
+                    end
                 end
             end
         end
@@ -64,73 +116,121 @@ local function getTarget()
     return target
 end
 
--- [[ 6. MOTOR DO AIMBOT (HARD LOCK) ]]
-RunService:BindToRenderStep("NandoLock", 201, function()
-    FOVCircle.Visible = getgenv().AimbotConfig.FOV.Enabled
-    FOVCircle.Radius = getgenv().AimbotConfig.FOV.Size
+-- MOTOR DO AIMBOT (RENDER STEPPED - PRIORIDADE MÁXIMA)
+RunService:BindToRenderStep("NandoHardLock", 205, function()
+    FOVCircle.Visible = getgenv().NandoConfig.Aimbot.FOV.Enabled
+    FOVCircle.Radius = getgenv().NandoConfig.Aimbot.FOV.Size
     FOVCircle.Position = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
-    if not (getgenv().AimbotConfig.Legit or getgenv().AimbotConfig.Rage) then return end
-    if not UserInputService:IsMouseButtonPressed(getgenv().AimbotConfig.Key) then return end
-    local lockTarget = getTarget()
+    FOVCircle.Color = getgenv().NandoConfig.Aimbot.FOV.Color
+
+    if not getgenv().NandoConfig.Aimbot.Legit and not getgenv().NandoConfig.Aimbot.Rage then return end
+    if getgenv().NandoConfig.Aimbot.UseKey and not UserInputService:IsMouseButtonPressed(getgenv().NandoConfig.Aimbot.Key) then return end
+
+    local lockTarget = getBestTarget()
     if lockTarget then
-        if getgenv().AimbotConfig.Rage then
+        if getgenv().NandoConfig.Aimbot.Rage then
             Camera.CFrame = CFrame.new(Camera.CFrame.Position, lockTarget.Position)
         else
-            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, lockTarget.Position), getgenv().AimbotConfig.Smoothness)
+            Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, lockTarget.Position), getgenv().NandoConfig.Aimbot.Smoothness)
         end
     end
 end)
--- =================================================================
--- Nando Hub | v6.0 | Part 2/3 (ESP & Physics)
--- =================================================================
+
+-- MOTOR DO TRIGGER (Sentinela Logic)
+task.spawn(function()
+    while task.wait() do
+        if getgenv().NandoConfig.Trigger.Enabled then
+            local target = Mouse.Target
+            if target and target.Parent then
+                local p = Players:GetPlayerFromCharacter(target.Parent)
+                if p and p ~= LocalPlayer and p.Character and p.Character.Humanoid.Health > 0 then
+                    local sameTeam = false
+                    pcall(function() if getgenv().NandoConfig.Trigger.TeamCheck and p.Team == LocalPlayer.Team then sameTeam = true end end)
+                    if not sameTeam then
+                        if getgenv().NandoConfig.Trigger.WallCheck and not isVisible(target) then continue end
+                        mouse1click()
+                        task.wait(getgenv().NandoConfig.Trigger.Delay)
+                    end
+                end
+            end
+        end
+    end
+end)
+--[[
+    Nando Hub | v7.0 
+    Parte 3 de 5: Engine de ESP e Física
+]]
 
 local function clearESP()
-    for _, obj in pairs(getgenv().ESPConfig.Drawings) do for _, d in pairs(obj) do d:Remove() end end
-    getgenv().ESPConfig.Drawings = {}
+    for _, obj in pairs(getgenv().NandoConfig.ESP.Drawings) do for _, d in pairs(obj) do d:Remove() end end
+    getgenv().NandoConfig.ESP.Drawings = {}
 end
 
 RunService.RenderStepped:Connect(function()
-    if not getgenv().ESPConfig.Enabled then clearESP(); return end
+    if not getgenv().NandoConfig.ESP.Enabled then clearESP(); return end
     for _, p in pairs(Players:GetPlayers()) do
         if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") and p.Character.Humanoid.Health > 0 then
+            
             local isFriendly = false
-            pcall(function() if getgenv().ESPConfig.Team and p.Team == LocalPlayer.Team then isFriendly = true end end)
+            pcall(function() if getgenv().NandoConfig.ESP.TeamCheck and p.Team == LocalPlayer.Team then isFriendly = true end end)
             if isFriendly then 
-                if getgenv().ESPConfig.Drawings[p] then for _, d in pairs(getgenv().ESPConfig.Drawings[p]) do d.Visible = false end end
+                if getgenv().NandoConfig.ESP.Drawings[p] then for _, d in pairs(getgenv().NandoConfig.ESP.Drawings[p]) do d.Visible = false end end
                 continue 
             end
-            if not getgenv().ESPConfig.Drawings[p] then
-                getgenv().ESPConfig.Drawings[p] = { box = Drawing.new("Square"), name = Drawing.new("Text"), hp = Drawing.new("Text") }
-                getgenv().ESPConfig.Drawings[p].box.Thickness = 1; getgenv().ESPConfig.Drawings[p].box.Color = Color3.new(1,0,0)
-                getgenv().ESPConfig.Drawings[p].name.Size = 14; getgenv().ESPConfig.Drawings[p].name.Center = true; getgenv().ESPConfig.Drawings[p].name.Outline = true
-                getgenv().ESPConfig.Drawings[p].hp.Size = 13; getgenv().ESPConfig.Drawings[p].hp.Outline = true; getgenv().ESPConfig.Drawings[p].hp.Color = Color3.new(0,1,0)
+
+            if not getgenv().NandoConfig.ESP.Drawings[p] then
+                getgenv().NandoConfig.ESP.Drawings[p] = { 
+                    box = Drawing.new("Square"), 
+                    name = Drawing.new("Text"), 
+                    hp = Drawing.new("Text") 
+                }
+                getgenv().NandoConfig.ESP.Drawings[p].box.Thickness = 1
+                getgenv().NandoConfig.ESP.Drawings[p].box.Color = Color3.new(1,0,0)
+                getgenv().NandoConfig.ESP.Drawings[p].name.Size = 14
+                getgenv().NandoConfig.ESP.Drawings[p].name.Center = true
+                getgenv().NandoConfig.ESP.Drawings[p].name.Outline = true
+                getgenv().NandoConfig.ESP.Drawings[p].hp.Size = 13
+                getgenv().NandoConfig.ESP.Drawings[p].hp.Outline = true
             end
+
             local root = p.Character.HumanoidRootPart
             local head = p.Character:FindFirstChild("Head") or root
             local vec, onScreen = Camera:WorldToViewportPoint(root.Position)
-            local d = getgenv().ESPConfig.Drawings[p]
+            local d = getgenv().NandoConfig.ESP.Drawings[p]
+
             if onScreen then
                 local h = math.abs(Camera:WorldToViewportPoint(head.Position + Vector3.new(0, 1.5, 0)).Y - Camera:WorldToViewportPoint(root.Position - Vector3.new(0, 3, 0)).Y)
                 local w = h / 2
-                if getgenv().ESPConfig.Box then d.box.Visible = true; d.box.Size = Vector2.new(w, h); d.box.Position = Vector2.new(vec.X - w/2, vec.Y - h/2) else d.box.Visible = false end
-                if getgenv().ESPConfig.Names then d.name.Visible = true; d.name.Text = p.Name; d.name.Position = Vector2.new(vec.X, vec.Y - h/2 - 20) else d.name.Visible = false end
-                if getgenv().ESPConfig.Health then d.hp.Visible = true; d.hp.Text = math.floor(p.Character.Humanoid.Health).." HP"; d.hp.Position = Vector2.new(vec.X, vec.Y + h/2 + 5) else d.hp.Visible = false end
+                
+                if getgenv().NandoConfig.ESP.Box then 
+                    d.box.Visible = true; d.box.Size = Vector2.new(w, h); d.box.Position = Vector2.new(vec.X - w/2, vec.Y - h/2) 
+                else d.box.Visible = false end
+
+                if getgenv().NandoConfig.ESP.Names then 
+                    d.name.Visible = true; d.name.Text = p.Name; d.name.Position = Vector2.new(vec.X, vec.Y - h/2 - 20) 
+                else d.name.Visible = false end
+
+                if getgenv().NandoConfig.ESP.Health then 
+                    d.hp.Visible = true; d.hp.Text = math.floor(p.Character.Humanoid.Health).." HP"
+                    d.hp.Position = Vector2.new(vec.X, vec.Y + h/2 + 5)
+                    d.hp.Color = Color3.fromHSV(p.Character.Humanoid.Health/100 * 0.3, 1, 1)
+                else d.hp.Visible = false end
             else d.box.Visible = false; d.name.Visible = false; d.hp.Visible = false end
-        else if getgenv().ESPConfig.Drawings[p] then for _, d in pairs(getgenv().ESPConfig.Drawings[p]) do d.Visible = false end end end
+        else if getgenv().NandoConfig.ESP.Drawings[p] then for _, d in pairs(getgenv().NandoConfig.ESP.Drawings[p]) do d.Visible = false end end end
     end
 end)
 
--- MOVIMENTO & NOCLIP
+-- LOOP FISICA (NOCLIP & FLY)
 RunService.Stepped:Connect(function()
-    if getgenv().PlayerMod.NoClip and LocalPlayer.Character then
+    if getgenv().NandoConfig.Movement.NoClip and LocalPlayer.Character then
         for _, v in pairs(LocalPlayer.Character:GetDescendants()) do if v:IsA("BasePart") then v.CanCollide = false end end
     end
-    if getgenv().PlayerMod.Fly and LocalPlayer.Character then
+    if getgenv().NandoConfig.Movement.Fly and LocalPlayer.Character then
         local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
         if root then
             root.Velocity = Vector3.new(0, 0, 0)
-            local moveDir = LocalPlayer.Character.Humanoid.MoveDirection * getgenv().PlayerMod.FlySpeed
-            root.CFrame = root.CFrame + (moveDir * 0.02) + Vector3.new(0, getgenv().PlayerMod.FlyDir * (getgenv().PlayerMod.FlySpeed/1.5) * 0.02, 0)
+            local moveDir = LocalPlayer.Character.Humanoid.MoveDirection * getgenv().NandoConfig.Movement.FlySpeed
+            root.CFrame = root.CFrame + (moveDir * 0.02) + Vector3.new(0, getgenv().NandoConfig.Movement.FlyDir * (getgenv().NandoConfig.Movement.FlySpeed/1.5) * 0.02, 0)
         end
     end
 end)
@@ -139,33 +239,38 @@ task.spawn(function()
     while task.wait(0.2) do
         pcall(function()
             local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
-            if hum then hum.WalkSpeed = getgenv().PlayerMod.Speed; hum.JumpPower = getgenv().PlayerMod.Jump end
+            if hum then 
+                hum.WalkSpeed = getgenv().NandoConfig.Movement.Speed
+                hum.JumpPower = getgenv().NandoConfig.Movement.Jump 
+            end
         end)
     end
 end)
 
 LocalPlayer.CharacterRemoving:Connect(clearESP)
--- =================================================================
--- Nando Hub | v6.0 | Part 3/3 (UI & Status)
--- =================================================================
+--[[
+    Nando Hub | v7.0 
+    Parte 4 de 5: Interface WindUI e Status
+]]
 
-local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
-local Window = WindUI:CreateWindow({ Title = "Nando Hub", Author = "nandoxx._.", Size = UDim2.fromOffset(580, 460), Theme = "Dark" })
+local Window = WindUI:CreateWindow({ 
+    Title = "Nando Hub", Author = "nandoxx._.", 
+    Size = UDim2.fromOffset(580, 460), Theme = "Dark" 
+})
 
 local TabPlayer = Window:Tab({ Title = "Player", Icon = "user" })
 local TabAimbot = Window:Tab({ Title = "Aimbot", Icon = "crosshair" })
-local TabEsp = Window:Tab({ Title = "Visuals", Icon = "eye" })
-local TabInfo = Window:Tab({ Title = "Info", Icon = "info" })
+local TabEsp = Window:Tab({ Title = "Esp", Icon = "eye" })
+local TabInfo = Window:Tab({ Title = "Informações", Icon = "info" })
 
--- TAGS
-Window:Tag({ Title = "v6.0 | Ultimate", Icon = "check", Color = Color3.fromHex("#30ff6a") })
+Window:Tag({ Title = "v7.0 | INTEGRAÇÃO", Icon = "check", Color = Color3.fromHex("#30ff6a") })
 Window:Tag({ Title = "Execuções: " .. execCount, Icon = "hash", Color = Color3.fromHex("#ffa500") })
 
--- STATUS DINÂMICO (COM CORES)
-local SectStatus = TabPlayer:Section({ Title = "Status do Jogador" })
+-- [[ STATUS DO JOGADOR ]]
+local SectStatus = TabPlayer:Section({ Title = "Informações do Player" })
 local pIcon = "rbxassetid://10723415903"
 pcall(function() pIcon = Players:GetUserThumbnailAsync(LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420) end)
-local StatusPara = SectStatus:Paragraph({ Title = LocalPlayer.DisplayName, Desc = "A carregar...", Image = pIcon, ImageSize = 55 })
+local StatusPara = SectStatus:Paragraph({ Title = LocalPlayer.DisplayName .. " (@" .. LocalPlayer.Name .. ")", Desc = "Calculando...", Image = pIcon, ImageSize = 55 })
 
 task.spawn(function()
     while task.wait(0.5) do
@@ -177,40 +282,57 @@ task.spawn(function()
     end
 end)
 
--- BOTÕES FLY UP/DOWN
+-- [[ BOTÕES FLY UP/DOWN ]]
 local FlyGui = Instance.new("ScreenGui", game:GetService("CoreGui")); FlyGui.Name = "NandoFly"; FlyGui.Enabled = false
 local function makeBtn(name, text, pos)
-    local b = Instance.new("TextButton", FlyGui); b.Size = UDim2.fromOffset(65, 65); b.Position = pos; b.Text = text
+    local b = Instance.new("TextButton", FlyGui); b.Name = name; b.Size = UDim2.fromOffset(65, 65); b.Position = pos; b.Text = text
     b.BackgroundColor3 = Color3.fromRGB(35, 35, 35); b.TextColor3 = Color3.new(1,1,1); b.Font = Enum.Font.GothamBold; b.TextSize = 16
     Instance.new("UICorner", b).CornerRadius = UDim.new(0, 10); Instance.new("UIStroke", b).Color = Color3.fromRGB(170, 0, 255)
-    b.MouseButton1Down:Connect(function() getgenv().PlayerMod.FlyDir = (text == "UP" and 1 or -1) end)
-    b.MouseButton1Up:Connect(function() getgenv().PlayerMod.FlyDir = 0 end)
+    b.MouseButton1Down:Connect(function() getgenv().NandoConfig.Movement.FlyDir = (text == "UP" and 1 or -1) end)
+    b.MouseButton1Up:Connect(function() getgenv().NandoConfig.Movement.FlyDir = 0 end)
 end
 makeBtn("Up", "UP", UDim2.new(0.85, 0, 0.6, 0)); makeBtn("Down", "DOWN", UDim2.new(0.85, 0, 0.72, 0))
 
--- UI PLAYER
-local SectPlr = TabPlayer:Section({ Title = "Modificações" })
-SectPlr:Toggle({ Title = "Ativar Fly", Callback = function(v) getgenv().PlayerMod.Fly = v; FlyGui.Enabled = v; if LocalPlayer.Character then LocalPlayer.Character.Humanoid.PlatformStand = v end end })
-SectPlr:Toggle({ Title = "NoClip", Callback = function(v) getgenv().PlayerMod.NoClip = v end })
-SectPlr:Slider({ Title = "Speed", Value = {Min=16, Max=250, Default=16}, Callback = function(v) getgenv().PlayerMod.Speed = v end })
-SectPlr:Slider({ Title = "Jump", Value = {Min=50, Max=300, Default=50}, Callback = function(v) getgenv().PlayerMod.Jump = v end })
+-- [[ UI PLAYER SECTION ]]
+local SectPlr = TabPlayer:Section({ Title = "Player" })
+SectPlr:Toggle({ Title = "Ativar Fly", Callback = function(v) getgenv().NandoConfig.Movement.Fly = v; FlyGui.Enabled = v; if LocalPlayer.Character then LocalPlayer.Character.Humanoid.PlatformStand = v end end })
+SectPlr:Toggle({ Title = "NoClip", Callback = function(v) getgenv().NandoConfig.Movement.NoClip = v end })
+SectPlr:Slider({ Title = "Player Speed", Value = {Min=16, Max=250, Default=16}, Callback = function(v) getgenv().NandoConfig.Movement.Speed = v end })
+SectPlr:Slider({ Title = "Power Jump", Value = {Min=50, Max=300, Default=50}, Callback = function(v) getgenv().NandoConfig.Movement.Jump = v end })
+--[[
+    Nando Hub | v7.0 
+    Parte 5 de 5: Aimbot, Esp e Encerramento
+]]
 
--- UI AIMBOT
-local SectAim = TabAimbot:Section({ Title = "Combate" })
-SectAim:Toggle({ Title = "RAGE Mode", Callback = function(v) getgenv().AimbotConfig.Rage = v; if v then getgenv().AimbotConfig.Legit = false end end })
-SectAim:Toggle({ Title = "Legit Mode", Callback = function(v) getgenv().AimbotConfig.Legit = v; if v then getgenv().AimbotConfig.Rage = false end end })
-SectAim:Slider({ Title = "Smoothing", Value = {Min=0.1, Max=1, Default=0.5}, Step=0.1, Callback = function(v) getgenv().AimbotConfig.Smoothness = v end })
-SectAim:Dropdown({ Title = "Alvo", Values = {"Head", "HumanoidRootPart"}, Callback = function(v) getgenv().AimbotConfig.Part = v end })
-SectAim:Toggle({ Title = "Wall Check", Value = true, Callback = function(v) getgenv().AimbotConfig.WallCheck = v end })
-SectAim:Toggle({ Title = "Ativar FOV", Callback = function(v) getgenv().AimbotConfig.FOV.Enabled = v end })
-SectAim:Slider({ Title = "Raio FOV", Value = {Min=30, Max=600, Default=100}, Callback = function(v) getgenv().AimbotConfig.FOV.Size = v end })
+-- [[ UI AIMBOT SECTION ]]
+local SectAim = TabAimbot:Section({ Title = "Aimbot" })
+SectAim:Toggle({ Title = "Ativar Aimbot Rage", Callback = function(v) getgenv().NandoConfig.Aimbot.Rage = v; if v then getgenv().NandoConfig.Aimbot.Legit = false end end })
+SectAim:Toggle({ Title = "Ativar Aimbot Legit", Callback = function(v) getgenv().NandoConfig.Aimbot.Legit = v; if v then getgenv().NandoConfig.Aimbot.Rage = false end end })
+SectAim:Slider({ Title = "Velocidade Legit (Suavidade)", Value = {Min=0.1, Max=1, Default=0.5}, Step=0.1, Callback = function(v) getgenv().NandoConfig.Aimbot.Smoothness = v end })
+SectAim:Dropdown({ Title = "Parte do Alvo", Values = {"Head", "HumanoidRootPart"}, Callback = function(v) getgenv().NandoConfig.Aimbot.Part = v end })
+SectAim:Toggle({ Title = "Ativar Wall Check", Value = true, Callback = function(v) getgenv().NandoConfig.Aimbot.WallCheck = v end })
+SectAim:Toggle({ Title = "Ativar Team Check", Value = true, Callback = function(v) getgenv().NandoConfig.Aimbot.TeamCheck = v end })
+SectAim:Divider()
+SectAim:Toggle({ Title = "Ativar FOV", Callback = function(v) getgenv().NandoConfig.Aimbot.FOV.Enabled = v end })
+SectAim:Slider({ Title = "Tamanho do FOV", Value = {Min=30, Max=600, Default=100}, Callback = function(v) getgenv().NandoConfig.Aimbot.FOV.Size = v end })
 
--- UI VISUALS
-local SectVis = TabEsp:Section({ Title = "ESP" })
-SectVis:Toggle({ Title = "Ativar ESP", Callback = function(v) getgenv().ESPConfig.Enabled = v end })
-SectVis:Toggle({ Title = "Boxes", Callback = function(v) getgenv().ESPConfig.Box = v end })
-SectVis:Toggle({ Title = "Names", Callback = function(v) getgenv().ESPConfig.Names = v end })
-SectVis:Toggle({ Title = "Health", Callback = function(v) getgenv().ESPConfig.Health = v end })
+local SectTrig = TabAimbot:Section({ Title = "TriggerBot" })
+SectTrig:Toggle({ Title = "Ativar Trigger Bot", Callback = function(v) getgenv().NandoConfig.Trigger.Enabled = v end })
+SectTrig:Toggle({ Title = "Ativar Wall Check", Value = true, Callback = function(v) getgenv().NandoConfig.Trigger.WallCheck = v end })
+SectTrig:Toggle({ Title = "Ativar Team Check", Value = true, Callback = function(v) getgenv().NandoConfig.Trigger.TeamCheck = v end })
 
-TabInfo:Section({ Title = "Créditos" }):Paragraph({ Title = "Nando Hub", Desc = "Criado por nandoxx._.\nVersão 6.0 Injetada." })
-WindUI:Notify({ Title = "Nando Hub", Content = "Execução #"..execCount.." iniciada!", Duration = 5 })
+-- [[ UI ESP SECTION ]]
+local SectEsp = TabEsp:Section({ Title = "Esp" })
+SectEsp:Toggle({ Title = "Ativar ESP", Callback = function(v) getgenv().NandoConfig.ESP.Enabled = v end })
+SectEsp:Toggle({ Title = "Ativar Team Check", Value = true, Callback = function(v) getgenv().NandoConfig.ESP.TeamCheck = v end })
+SectEsp:Toggle({ Title = "Ativar Boxes", Callback = function(v) getgenv().NandoConfig.ESP.Box = v end })
+SectEsp:Toggle({ Title = "Ativar Names", Callback = function(v) getgenv().NandoConfig.ESP.Names = v end })
+SectEsp:Toggle({ Title = "Ativar Health", Callback = function(v) getgenv().NandoConfig.ESP.Health = v end })
+
+-- [[ INFO SECTION ]]
+local SectCred = TabInfo:Section({ Title = "Creditos" })
+SectCred:Paragraph({ Title = "Desenvolvido por", Desc = "nandoxx._." })
+SectCred:Paragraph({ Title = "IA Utilizada", Desc = "DRIP 🥋" })
+SectCred:Paragraph({ Title = "Base de Combate", Desc = "Script do Amigo (IAmxit.txt)" })
+
+WindUI:Notify({ Title = "Nando Hub v7.0", Content = "Script TOTALMENTE carregado! Execução #"..execCount, Duration = 5 })
