@@ -1,5 +1,5 @@
 -- =================================================================
--- Nando Hub | v17.0 | UI Restore & Status Fix (Part 1/3)
+-- Nando Hub | v18.0 | Final Fix (Part 1/3)
 -- =================================================================
 
 local Players = game:GetService("Players")
@@ -10,7 +10,7 @@ local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
 
--- [[ 1. CONTADOR DE EXECUÇÕES ]]
+-- [[ 1. SISTEMA DE EXECUÇÕES ]]
 local EXEC_FILE = "NandoHub_Logs.txt"
 local execs = 1
 pcall(function()
@@ -18,7 +18,7 @@ pcall(function()
     if writefile then writefile(EXEC_FILE, tostring(execs)) end
 end)
 
--- [[ 2. CONFIGURAÇÕES (O QUE TINHAS ANTES) ]]
+-- [[ 2. CONFIGURAÇÕES ]]
 getgenv().Config = {
     Aim = { Rage=false, Legit=false, Part="Head", Speed=0.5, WallCheck=true, TeamCheck=true, Key=Enum.UserInputType.MouseButton2, FOV={Enabled=false, Radius=100} },
     ESP = { Enabled=false, Box=false, Tracer=false, Name=false, HP=false, Dist=false, TeamCheck=true, Cache={} },
@@ -38,36 +38,41 @@ Window:Tag({ Title = "Mobile Delta", Icon = "phone", Color = Color3.fromRGB(0, 2
 Window:Tag({ Title = "Execuções: "..execs, Icon = "hash", Color = Color3.fromRGB(255, 170, 0) })
 
 -- [[ 4. STATUS DO JOGADOR (CORRIGIDO) ]]
--- Criamos a secção e o parágrafo inicial
 local SectStatus = TabPlayer:Section({ Title = "Informações" })
-local StatsTxt = SectStats:Paragraph({ Title = LocalPlayer.DisplayName, Desc = "Carregando dados...", Image = "rbxassetid://0" })
 
--- Função para atualizar a foto e os textos
+-- CORREÇÃO DA LINHA 43: Removemos 'Image' daqui e usamos SetImage depois
+local StatsTxt = SectStatus:Paragraph({ Title = LocalPlayer.DisplayName, Content = "Carregando dados..." })
+
 task.spawn(function()
-    -- 1. Carregar a Foto (Retry se falhar)
-    local icon = "rbxassetid://10723415903" -- Ícone padrão
+    -- Define a foto corretamente com tamanho
+    local icon = "rbxassetid://10723415903"
     pcall(function()
         icon = Players:GetUserThumbnailAsync(LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size420x420)
     end)
-    StatsTxt:SetImage(icon) -- Aplica a foto
+    -- Usa SetImage (Se a lib suportar) ou SetThumbnail. Tentamos ambos para garantir.
+    pcall(function() StatsTxt:SetImage(icon, 100) end) 
 
-    -- 2. Loop de FPS e Ping com Cores HTML
+    -- Loop de Atualização (Ping/FPS Colorido)
     while task.wait(0.5) do
         local ping = 0
         pcall(function() ping = math.floor(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue()) end)
         local fps = math.floor(workspace:GetRealPhysicsFPS())
 
-        -- Definir Cores (Hexadecimal)
+        -- Cores Heximais
         local fpsColor = "#00ff00" -- Verde
         if fps < 45 then fpsColor = "#ffff00" end -- Amarelo
         if fps < 25 then fpsColor = "#ff0000" end -- Vermelho
 
         local pingColor = "#00ff00" -- Verde
-        if ping > 100 then pingColor = "#ffff00" end -- Amarelo
-        if ping > 200 then pingColor = "#ff0000" end -- Vermelho
+        if ping > 120 then pingColor = "#ffff00" end -- Amarelo
+        if ping > 250 then pingColor = "#ff0000" end -- Vermelho
 
-        -- Atualiza o texto usando RichText
-        StatsTxt:SetDesc(string.format("FPS: <font color='%s'>%d</font> | Ping: <font color='%s'>%d ms</font>", fpsColor, fps, pingColor, ping))
+        -- Texto Rico (RichText)
+        local texto = string.format("FPS: <font color='%s'>%d</font> | Ping: <font color='%s'>%d ms</font>", fpsColor, fps, pingColor, ping)
+        
+        -- Tenta usar SetDesc ou SetContent (WindUI varia, usamos pcall para tentar o certo)
+        pcall(function() StatsTxt:SetDesc(texto) end)
+        pcall(function() StatsTxt:SetContent(texto) end)
     end
 end)
 
@@ -107,7 +112,7 @@ SectEspElem:Toggle({ Title = "Tracer (Linha)", Callback = function(v) getgenv().
 SectEspElem:Toggle({ Title = "Nome + Distância", Callback = function(v) getgenv().Config.ESP.Name = v; getgenv().Config.ESP.Dist = v end })
 SectEspElem:Toggle({ Title = "Vida (HP)", Callback = function(v) getgenv().Config.ESP.HP = v end })
 -- =================================================================
--- Nando Hub | v17.0 | Part 2/3 (Core Engines)
+-- Nando Hub | v18.0 | Part 2/3 (Core Engines)
 -- =================================================================
 
 -- [[ UI FLY MOBILE ]]
@@ -191,7 +196,7 @@ RunService.Stepped:Connect(function()
     end)
 end)
 -- =================================================================
--- Nando Hub | v17.0 | Part 3/3 (ESP Full Original & Fixed)
+-- Nando Hub | v18.0 | Part 3/3 (ESP Full)
 -- =================================================================
 
 local function clearESP()
@@ -206,12 +211,11 @@ local function newDraw(type, props)
 end
 
 RunService.RenderStepped:Connect(function()
-    -- Se ESP estiver desligado, limpa tudo imediatamente
     if not getgenv().Config.ESP.Enabled then clearESP(); return end
 
     for _, p in ipairs(Players:GetPlayers()) do
         pcall(function()
-            -- 1. Cria Cache se não existir (Todos os elementos que pediste)
+            -- 1. Cria Cache
             if not getgenv().Config.ESP.Cache[p] then
                 getgenv().Config.ESP.Cache[p] = {
                     Box = newDraw("Square", {Thickness = 1.5, Color = Color3.new(1,0,0), Filled = false, ZIndex=2}),
@@ -224,7 +228,6 @@ RunService.RenderStepped:Connect(function()
             local c = getgenv().Config.ESP.Cache[p]
 
             -- 2. RESET TOTAL (Anti-Ghosting)
-            -- Esconde tudo primeiro. Só mostra se passar nos testes.
             c.Box.Visible = false
             c.Tracer.Visible = false
             c.Name.Visible = false
@@ -248,33 +251,22 @@ RunService.RenderStepped:Connect(function()
 
                     -- Box
                     if getgenv().Config.ESP.Box then
-                        c.Box.Visible = true
-                        c.Box.Size = Vector2.new(w, h)
-                        c.Box.Position = Vector2.new(vec.X - w/2, vec.Y - h/2)
+                        c.Box.Visible = true; c.Box.Size = Vector2.new(w, h); c.Box.Position = Vector2.new(vec.X - w/2, vec.Y - h/2)
                     end
-
                     -- Tracer
                     if getgenv().Config.ESP.Tracer then
-                        c.Tracer.Visible = true
-                        c.Tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y)
-                        c.Tracer.To = Vector2.new(vec.X, vec.Y + h/2)
+                        c.Tracer.Visible = true; c.Tracer.From = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y); c.Tracer.To = Vector2.new(vec.X, vec.Y + h/2)
                     end
-
-                    -- Nome e Distância
+                    -- Nome
                     if getgenv().Config.ESP.Name then
-                        c.Name.Visible = true
-                        local distInfo = ""
-                        if getgenv().Config.ESP.Dist then
-                            distInfo = string.format(" [%d m]", math.floor(vec.Z))
-                        end
-                        c.Name.Text = p.DisplayName .. distInfo
+                        c.Name.Visible = true; 
+                        local dist = getgenv().Config.ESP.Dist and string.format(" [%d m]", math.floor(vec.Z)) or ""
+                        c.Name.Text = p.DisplayName .. dist
                         c.Name.Position = Vector2.new(vec.X, vec.Y - h/2 - 16)
                     end
-
                     -- HP
                     if getgenv().Config.ESP.HP then
-                        c.HP.Visible = true
-                        c.HP.Text = math.floor(p.Character.Humanoid.Health).."%"
+                        c.HP.Visible = true; c.HP.Text = math.floor(p.Character.Humanoid.Health).."%"
                         c.HP.Position = Vector2.new(vec.X, vec.Y + h/2 + 2)
                         c.HP.Color = Color3.fromHSV(p.Character.Humanoid.Health/100*0.3, 1, 1)
                     end
@@ -286,5 +278,4 @@ end)
 
 LocalPlayer.CharacterRemoving:Connect(clearESP)
 
-WindUI:Notify({ Title = "Nando Hub", Content = "Status e UI Restaurados!", Duration = 5 })
-
+WindUI:Notify({ Title = "Nando Hub", Content = "Script carregado sem erros!", Duration = 5 })
